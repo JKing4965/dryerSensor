@@ -1,3 +1,5 @@
+//LED turns green when MCU is shaken
+
 #include <Adafruit_TinyUSB.h>
 #include <LSM6DS3.h>
 #include <Wire.h>
