@@ -15,7 +15,7 @@
 #include <Wire.h>
 #include <SPI.h>
 #include <Adafruit_Sensor.h>
-#include "Adafruit_BMP5xx.h"
+#include "Adafruit_BMP5xx.h" //Adafruit BMP5xx library
 
 #define SEALEVELPRESSURE_HPA (1013.25)
 
