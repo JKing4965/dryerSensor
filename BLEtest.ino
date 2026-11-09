@@ -21,6 +21,7 @@
  */
 
 #include <bluefruit.h>   // Ships with the "Seeed nRF52 Boards" core
+#include <Adafruit_TinyUSB.h>
 
 BLEUart bleuart;         // Nordic UART Service (serial over Bluetooth)
 
