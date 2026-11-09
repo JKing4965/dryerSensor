@@ -9,3 +9,6 @@ build/
 # OS junk
 .DS_Store
 Thumbs.db
+
+# Personal editor settings (paths differ per machine)
+.vscode/
