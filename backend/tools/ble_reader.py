@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
 """
-ble_reader.py - Connect to an MCU over BLE and read the data it sends.
+ble_reader.py - Debug tool: connect to an MCU over BLE and print the data it sends.
 
-Requires:  pip install bleak
+Standalone helper for checking the board by hand. The real receiver that stores
+data in the database is the dryer_backend package (backend/src/dryer_backend).
+
+Requires:  run from backend/ with uv (bleak is installed by `uv sync`)
 Works on:  Windows 10+, macOS, Linux (BlueZ >= 5.55)
 
-Typical usage
--------------
+Typical usage (from the backend/ folder)
+----------------------------------------
 1) Find your device and see what it exposes:
-       python ble_reader.py --scan
-       python ble_reader.py --name MyESP32 --explore
+       uv run tools/ble_reader.py --scan
+       uv run tools/ble_reader.py --name XIAO-BLE --explore
 
 2) Stream data (notifications - the normal way MCUs push data):
        python ble_reader.py --name MyESP32 --char <characteristic-uuid>

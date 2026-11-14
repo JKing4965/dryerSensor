@@ -1,7 +1,21 @@
+# .gitignore - files git should never track (generated, machine-specific or secret).
+
 # Python / uv
 .venv/
 __pycache__/
 *.py[cod]
+.pytest_cache/
+
+# Node / Next.js (frontend/)
+node_modules/
+.next/
+out/
+next-env.d.ts
+*.tsbuildinfo
+
+# Local settings and secrets (commit the *.example versions instead)
+.env
+.env*.local
 
 # Arduino / editor build output
 build/

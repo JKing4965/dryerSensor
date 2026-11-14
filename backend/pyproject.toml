@@ -1,0 +1,34 @@
+# pyproject.toml - Python project definition for the dryer sensor backend.
+#
+# Lists the libraries the backend needs. uv reads this file and installs the
+# exact versions pinned in uv.lock into backend/.venv.
+#   Install / update after pulling:   cd backend && uv sync
+#   Add a library:                     cd backend && uv add <package>
+# Always commit this file together with uv.lock.
+
+[project]
+name = "dryer-backend"
+version = "0.1.0"
+description = "Receives dryer sensor data over BLE, stores it in TimescaleDB, computes lint metrics."
+requires-python = ">=3.13"
+dependencies = [
+    "bleak>=3.1.0",
+    "psycopg[binary,pool]>=3.3.9",
+    "python-dotenv>=1.2.4",
+]
+
+[build-system]
+requires = ["uv_build>=0.9,<1.0"]
+build-backend = "uv_build"
+
+[tool.uv]
+# uv.lock uses lockfile revision 5; older uv versions can't read it.
+required-version = ">=0.9"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+]

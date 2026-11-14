@@ -1,0 +1,43 @@
+# docker-compose.yml - runs the TimescaleDB database for the dryer sensor project.
+#
+# What it does:
+#   Starts PostgreSQL with the TimescaleDB extension in a container. Data is kept
+#   in the named volume "dryer_db_data", so it survives restarts.
+#   Any .sql files in backend/db/ are run automatically, but ONLY the first time
+#   the database is created (empty volume).
+#
+# Talks to:
+#   - backend/ (Python receiver) and frontend/ (Next.js) connect on localhost:5432
+#     using the settings in the repo-root .env file.
+#
+# How to use (from the repo root, after copying .env.example to .env):
+#   docker compose up -d        start the database in the background
+#   docker compose ps           check it shows "healthy"
+#   docker compose down         stop it (data is kept)
+#   docker compose down -v      stop it AND delete all data (re-runs backend/db/*.sql next start)
+#
+# Note: the Bluetooth receiver is NOT run in Docker - Docker on Windows cannot
+# reach the computer's Bluetooth adapter.
+
+services:
+  db:
+    image: timescale/timescaledb:2.17.2-pg17
+    container_name: dryer-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - dryer_db_data:/var/lib/postgresql/data
+      - ./backend/db:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  dryer_db_data:
