@@ -68,7 +68,8 @@ dryerSensor/
 ├── backend/                       ── PYTHON (uv project) ──
 │   ├── pyproject.toml / uv.lock / .python-version
 │   ├── db/
-│   │   └── schema.sql             SQL   — tables, hypertable, lint_status view
+│   │   ├── schema.sql             SQL   — tables, hypertable, lint_settings, lint_status view
+│   │   └── seed.sql               SQL   — the 'dryer-1' device row + default lint thresholds
 │   ├── src/dryer_backend/
 │   │   ├── __init__.py
 │   │   ├── config.py              reads .env (DB URL, device name, timeouts)
@@ -218,6 +219,7 @@ a newline. Bad lines are logged and skipped, never crash the receiver.
 | `cycles` | `id, device_id, cycle_no (unique per device), started_at, ended_at, state ('running' / 'complete' / 'incomplete'), n_samples, last_seq, baseline_dp, baseline_t_in, baseline_t_out` + features: `dp_steady (offset-corrected median ΔP), t_in_max, dt_mean, duration_s` |
 | `events` | `id, device_id, time, type ('filter_cleaned'), note` |
 | `device_status` | `device_id, connected, last_seen, state, boot_id, backlog_count` |
+| `lint_settings` | one row of tunable thresholds; change with `UPDATE`, no database reset needed |
 | `lint_status` (view) | latest cycle vs reference → `score`, `status`, `cycles_since_cleaning`, and a `possible_vent_blockage` flag |
 
 **Starting lint rule** (placeholders, to tune with real data):
