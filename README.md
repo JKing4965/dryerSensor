@@ -55,8 +55,15 @@ uv run tools/ble_reader.py --scan
 uv run tools/ble_reader.py --name XIAO-BLE --text
 ```
 
+**Tests** (from `backend/`):
+```
+uv run pytest
+```
+
 `uv run` always uses the project environment, so there is no need to activate `.venv`.
 The receiver, simulator and dashboard commands are added here as they are built.
+
+The Bluetooth message format the firmware must follow is in [docs/protocol.md](docs/protocol.md).
 
 ## Adding or updating a Python library
 

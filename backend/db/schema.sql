@@ -119,7 +119,7 @@ CREATE INDEX events_device_type_time_idx ON events (device_id, type, time DESC);
 
 -- ---------------------------------------------------------------------------
 -- device_status: one row per device, kept up to date by the receiver so the
--- dashboard can show "connected / idle / running / uploading".
+-- dashboard can show "connected / idle / running / uploading" and sensor errors.
 -- ---------------------------------------------------------------------------
 CREATE TABLE device_status (
     device_id         text PRIMARY KEY REFERENCES devices (device_id),
@@ -129,6 +129,10 @@ CREATE TABLE device_status (
     boot_id           bigint,
     backlog_count     integer,                     -- samples still waiting in the board's flash
     protocol_version  integer,
+    -- Sensor error codes from the H line (docs/protocol.md 3.1): 0 ok, 1 missing, 2 broken
+    sensor_in_error   smallint CHECK (sensor_in_error  IN (0, 1, 2)),  -- under the lint screen
+    sensor_out_error  smallint CHECK (sensor_out_error IN (0, 1, 2)),  -- room air
+    sensor_error_since timestamptz,                -- when either code last changed away from 0
     updated_at        timestamptz NOT NULL DEFAULT now()
 );
 

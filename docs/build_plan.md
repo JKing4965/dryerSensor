@@ -184,7 +184,7 @@ Recharts, with the database reducing the data to about 500 points per chart
 
 ---
 
-## 3. Bluetooth message format (summary; full spec in B2 → `docs/protocol.md`)
+## 3. Bluetooth message format (summary; `docs/protocol.md` is the full spec and wins if they differ)
 
 Text lines ending in `\n`, comma-separated fields, pressure in **Pa**, temperature in **°C**.
 The Adafruit library returns hPa, so the firmware multiplies by 100.
@@ -193,9 +193,9 @@ The Adafruit library returns hPa, so the firmware multiplies by 100.
 
 | Line | Meaning |
 |---|---|
-| `H,1,<boot_id>,<ms>,<state>,<backlog_count>` | hello/status: protocol v1, sent on connect and every 30 s |
-| `B,<boot_id>,<ms>,<p_in>,<t_in>,<p_out>,<t_out>,<src>` | baseline reading taken while idle; `src` = `L` (live) or `F` (flash) |
-| `C,<boot_id>,<cycle_no>,<ms>` | cycle started (vibration detected) |
+| `H,1,<boot_id>,<ms>,<state>,<backlog_count>,<err_in>,<err_out>` | hello/status: protocol v1, sent on connect, every 30 s and when a sensor error changes; error codes 0 = ok, 1 = missing, 2 = broken |
+| `B,<boot_id>,<ms>,<p_in>,<t_in>,<p_out>,<t_out>` | baseline reading taken while idle (live only) |
+| `C,<boot_id>,<cycle_no>,<ms>,<base_ms>,<base_p_in>,<base_t_in>,<base_p_out>,<base_t_out>` | cycle started; carries the pre-cycle baseline, which is saved to flash with the cycle |
 | `S,<boot_id>,<cycle_no>,<seq>,<ms>,<p_in>,<t_in>,<p_out>,<t_out>,<src>` | one sample |
 | `E,<boot_id>,<cycle_no>,<ms>,<n_samples>` | cycle ended (vibration stopped) |
 
@@ -204,7 +204,7 @@ The Adafruit library returns hPa, so the firmware multiplies by 100.
 | Line | Meaning |
 |---|---|
 | `T,<unix_ms>` | current real time (optional; lets the board label its flash data) |
-| `A,<cycle_no>,<seq>` | stored everything up to here; the board may erase it from flash |
+| `A,<cycle_no>,<seq>,<done>` | stored everything up to `seq`; `done=1` → whole cycle stored, the board may erase it from flash |
 
 Because Bluetooth splits lines across packets, the receiver collects bytes until it sees
 a newline. Bad lines are logged and skipped, never crash the receiver.
@@ -340,6 +340,8 @@ a newline. Bad lines are logged and skipped, never crash the receiver.
 
 ### F2. Live page
 - A status badge (connected / idle / running cycle N / uploading backlog).
+- A red sensor-error banner when either sensor reports `1` (missing: "Inside sensor not found,
+  check wiring") or `2` (broken: "Outside sensor giving bad readings").
 - Live charts: ΔP (offset-corrected) and inside vs. outside temperature for the current or
   most recent cycle, refreshed every 2 s.
 - Flash-uploaded and estimated-time points are drawn differently.
