@@ -9,4 +9,6 @@
 
 // Starts advertising BLE -> connects to mobile device -> senses dryer vibration via IMU -> 
 // Starts recording temperature and air pressure values (needs to send initial temp and air pressure reading before dryer starts
-// -> sends data over BLE -> ends when accelerometers senses no vibration
+// -> sends data over BLE -> ends when accelerometers senses no vibration -> reads input for "filter cleaned button" ->
+// -> if true: resets the system for the next cycle; if false: continues monitoring for the next cycle and remind user to clean lint
+
