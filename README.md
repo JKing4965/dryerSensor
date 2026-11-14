@@ -55,10 +55,31 @@ uv run tools/ble_reader.py --scan
 uv run tools/ble_reader.py --name XIAO-BLE --text
 ```
 
+**Receiver** (from `backend/`, database running). Stores data in the database; stop with Ctrl+C:
+```
+uv run python -m dryer_backend.ingest --source sim --scenario normal --cycles 3
+uv run python -m dryer_backend.ingest --source sim --scenario disconnect --speed 60
+uv run python -m dryer_backend.ingest --source replay tests/fixtures/example_session.txt
+uv run python -m dryer_backend.ingest --help
+```
+Simulator scenarios: `normal` (lint builds up), `vent` (exhaust clogs), `disconnect`
+(cycle uploaded later from flash), `reboot` (board restarts, estimated times),
+`sensor_error`. `--speed 0` (default) runs instantly and back-dates the data so it ends
+now; `--speed 10` runs 10× real time starting now.
+
+To see the lines a fake board sends, without the database:
+```
+uv run python -m dryer_backend.simulator --scenario normal --cycles 2
+```
+
+To wipe all stored data and start fresh: `docker compose down -v` then `docker compose up -d`.
+
 **Tests** (from `backend/`):
 ```
 uv run pytest
 ```
+Database tests use a separate temporary `dryer_test` database and are skipped if
+Docker isn't running.
 
 `uv run` always uses the project environment, so there is no need to activate `.venv`.
 The receiver, simulator and dashboard commands are added here as they are built.

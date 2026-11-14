@@ -46,6 +46,7 @@ CREATE TABLE readings (
     device_id       text             NOT NULL REFERENCES devices (device_id),
     kind            text             NOT NULL CHECK (kind IN ('baseline', 'cycle')),
     boot_id         bigint,                        -- board power-up ID the sample came from
+    board_ms        bigint,                        -- board's raw millis() value (for debugging / de-duplication)
     cycle_no        integer,                       -- board's cycle counter (NULL for baselines)
     seq             integer,                       -- sample number within the cycle
     p_in            double precision NOT NULL,     -- Pa, under the lint screen

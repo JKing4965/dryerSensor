@@ -83,10 +83,12 @@ dryerSensor/
 │   │   ├── simulator.py           fake board: clean→dirty cycles, disconnect + flash backlog
 │   │   └── ingest.py              entry point: wires source → parser → db
 │   ├── tests/                     pytest
+│   │   ├── conftest.py            temporary dryer_test database for DB tests
 │   │   ├── fixtures/              recorded/simulated line files
 │   │   ├── test_protocol.py
 │   │   ├── test_timesync.py
-│   │   ├── test_cycles.py
+│   │   ├── test_simulator.py
+│   │   ├── test_cycles.py         end-to-end receiver tests against the test database
 │   │   └── test_features.py
 │   └── tools/
 │       └── ble_reader.py          existing debug tool (moved from repo root)
