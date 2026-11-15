@@ -59,30 +59,42 @@ docker compose up -d
 docker compose ps          # wait until it says "healthy"
 ```
 
-**Terminal 2: receiver** (stop with Ctrl+C; buffered data is saved first):
-```
-cd backend
-uv run python -m dryer_backend.ingest --source ble          # the real board
-```
-
-**Terminal 3: dashboard**:
+**Terminal 2: dashboard**:
 ```
 cd frontend
 npm run dev                # open http://localhost:3000
 ```
 
+**Connect to the board:** on the Live tab, press **Connect to sensor**. This starts the
+Bluetooth receiver on this computer. It searches for the board and reconnects by itself,
+and its log is under "Receiver log". **Disconnect** stops it cleanly. The receiver also stops
+when the dashboard (`npm run dev`) stops.
+
+*Or* run the receiver in its own terminal (stop with Ctrl+C), which is handy for watching
+its log or for the simulator in section 3:
+```
+cd backend
+uv run python -m dryer_backend.ingest --source ble
+```
+Use one or the other: the board accepts only one connection at a time, so the button is
+disabled while a terminal receiver is connected.
+
 The dashboard has three tabs:
-- **Live:** connection badge, sensor errors, current cycle charts. Refreshes every 2 s.
+- **Live:** Connect / Disconnect, connection badge, sensor errors, current cycle charts. Refreshes every 2 s.
 - **Cycles:** every cycle, each opening its own charts.
 - **Lint:** verdict, trend, and the **Filter cleaned** button. Press it right after you clean the screen.
 
 A banner appears on every page when the screen needs cleaning or the exhaust duct looks blocked.
 
-Stop everything: Ctrl+C in terminals 2 and 3, then `docker compose down` (data is kept).
+Stop everything: Disconnect (or Ctrl+C in the receiver terminal), Ctrl+C in the dashboard
+terminal, then `docker compose down` (data is kept).
+
+The dashboard is meant for your own computer or home network. Its Connect button starts a
+fixed program on this computer, so don't expose `npm run dev` to the internet.
 
 ## 3. Without hardware: simulator and replay
 
-Swap the receiver command in terminal 2 for one of these (from `backend/`):
+Run one of these in a terminal instead of pressing Connect (from `backend/`):
 
 ```
 uv run python -m dryer_backend.ingest --source sim --scenario normal --cycles 7
@@ -161,6 +173,8 @@ docker compose exec db psql -U dryer -d dryer -c "SELECT cycle_no, dp_steady, sc
 | Receiver: `device 'dryer-1' is not in the devices table` | `DEVICE_ID` in `.env` doesn't match `backend/db/seed.sql`. |
 | Dashboard: "Can't load live data … DATABASE_URL is not set" | `frontend/.env.local` is missing. Copy it from `.env.local.example`, then restart `npm run dev`. |
 | Dashboard: `relation "lint_status" does not exist` or a missing column | The database was created from an older schema. Run `docker compose down -v` then `up -d` (deletes data). |
+| Connect button: `Python not found … Run "uv sync" in backend/` | The backend environment doesn't exist yet. Run `uv sync` in `backend/`, or set `RECEIVER_PYTHON` in `frontend/.env.local`. |
+| Connect button disabled, "Connected by another receiver" | A receiver started in a terminal holds the board. Stop it with Ctrl+C there. |
 | `board 'XIAO-BLE' not found` | Board is off, out of range, or another app is connected to it. Check with `uv run tools/ble_reader.py --scan`. |
 | Receiver logs `skipped bad line` with missing characters, e.g. `H,,0499,600,…` | The sketch writes one byte per Bluetooth packet and the queue drops about half. Collect the line and send it with one `bleuart.write(buf, len)` call. |
 | Dashboard badge says **Disconnected** while data looks recent | The receiver isn't running, or hasn't written status for 65 s. Restart it. |

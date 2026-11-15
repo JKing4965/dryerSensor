@@ -148,6 +148,18 @@ export interface LintData {
   history: LintHistoryPoint[];
 }
 
+/** GET/POST /api/receiver: the Bluetooth receiver started from the dashboard. */
+export interface ReceiverStatus {
+  /** A receiver started by this dashboard is running right now. */
+  running: boolean;
+  pid: number | null;
+  startedAt: string | null;
+  exitedAt: string | null;
+  exitCode: number | null;
+  /** Its most recent log lines (oldest first). */
+  log: string[];
+}
+
 /** POST /api/filter-cleaned */
 export interface FilterCleanedResult {
   /** false if a cleaning was already recorded in the last minute (double-click guard). */

@@ -27,6 +27,8 @@ How to run (from backend/, with the database running: docker compose up -d):
     uv run python -m dryer_backend.ingest --source ble          (real board, name from .env)
     uv run python -m dryer_backend.ingest --help
 Stop with Ctrl+C; buffered data is written before it exits.
+The dashboard's Connect button starts it with --control-stdin and stops it by writing
+"quit" to its stdin (frontend/src/lib/receiver.ts).
 """
 
 from __future__ import annotations
@@ -36,9 +38,11 @@ import asyncio
 import contextlib
 import logging
 import sys
-from collections.abc import Awaitable, Callable
+import threading
+from collections.abc import Awaitable, Callable, Coroutine
 from dataclasses import asdict, dataclass
 from datetime import datetime
+from typing import Any
 
 import psycopg
 
@@ -262,6 +266,28 @@ def _make_source(args: argparse.Namespace, settings: Settings) -> Source:
     return BleSource(device_name=args.name or settings.ble_device_name, address=args.address)
 
 
+async def _stoppable_by_stdin(coro: Coroutine[Any, Any, Stats]) -> Stats:
+    """Run the receiver until it ends, or until stdin says 'quit' / closes.
+
+    Used when the dashboard starts the receiver as a child process: the dashboard writes
+    'quit' to stop it, and if the dashboard itself goes away stdin closes, so the receiver
+    never outlives it. Stopping cancels the task, so run_ingest's cleanup still runs
+    (buffered samples written, device_status set to disconnected).
+    """
+    loop = asyncio.get_running_loop()
+    task = asyncio.ensure_future(coro)
+
+    def watch_stdin() -> None:  # a thread: Windows can't await stdin in this event loop
+        for line in sys.stdin:
+            if line.strip().lower() == "quit":
+                break
+        log.info("stop requested on stdin")
+        loop.call_soon_threadsafe(task.cancel)
+
+    threading.Thread(target=watch_stdin, name="stdin-control", daemon=True).start()
+    return await task
+
+
 def main(argv: list[str] | None = None) -> None:
     from dryer_backend.simulator import add_sim_arguments
 
@@ -276,6 +302,9 @@ def main(argv: list[str] | None = None) -> None:
     ble = parser.add_argument_group("Bluetooth options (--source ble)")
     ble.add_argument("--name", help="board's advertised name (default: BLE_DEVICE_NAME in .env)")
     ble.add_argument("--address", help="board's address instead of its name")
+    parser.add_argument("--control-stdin", action="store_true",
+                        help="stop cleanly when a line 'quit' arrives on stdin, or stdin closes "
+                             "(used when the dashboard starts the receiver)")  # fmt: skip
     add_sim_arguments(parser)
     args = parser.parse_args(argv)
 
@@ -290,12 +319,12 @@ def main(argv: list[str] | None = None) -> None:
         raise SystemExit(str(e)) from None
 
     source = _make_source(args, settings)
-    log.info("source=%s device=%s - Ctrl+C to stop", source.name, settings.device_id)
+    log.info("source=%s device=%s - %s", source.name, settings.device_id,
+             "send 'quit' on stdin to stop" if args.control_stdin else "Ctrl+C to stop")  # fmt: skip
+    coro = run_ingest(source, settings.database_url, settings.device_id, settings.flush_interval_s)
     try:
-        stats = run_async(
-            run_ingest(source, settings.database_url, settings.device_id, settings.flush_interval_s)
-        )
-    except KeyboardInterrupt:
+        stats = run_async(_stoppable_by_stdin(coro) if args.control_stdin else coro)
+    except (KeyboardInterrupt, asyncio.CancelledError):
         log.info("stopped")
         return
     except psycopg.OperationalError as e:

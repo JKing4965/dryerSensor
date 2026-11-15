@@ -3,6 +3,7 @@
  *
  * What it does:
  *   Polls /api/status and /api/live and shows:
+ *     - the "Connect to sensor" card (ReceiverControl), which starts/stops the receiver
  *     - the connection badge (StatusBadge) and any sensor problem (SensorErrorBanner)
  *     - the current cycle (or the most recent one): number, state, start, length,
  *       with a link to its detail page
@@ -19,6 +20,7 @@ import Link from "next/link";
 
 import { CycleStateChip } from "@/components/Chips";
 import CycleCharts from "@/components/CycleCharts";
+import ReceiverControl from "@/components/ReceiverControl";
 import SensorErrorBanner from "@/components/SensorErrorBanner";
 import StatusBadge from "@/components/StatusBadge";
 import { Card, ErrorBox, Note, Stat } from "@/components/ui";
@@ -37,6 +39,7 @@ export default function LiveView() {
 
   return (
     <div className="space-y-4">
+      <ReceiverControl device={status.data} />
       {error && <ErrorBox title="Can't load live data" detail={error} />}
       {status.data && (
         <>
