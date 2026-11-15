@@ -3,17 +3,19 @@
  *
  * What it does:
  *   Sets the page title, fonts and colors (globals.css), and renders the header
- *   with NavTabs above whichever page is open. Mobile first: tabs fill the width
- *   on a phone and sit next to the title on wider screens.
+ *   with NavTabs above whichever page is open, plus the lint reminder banner
+ *   (shown on every page while the lint screen needs cleaning). Mobile first: tabs
+ *   fill the width on a phone and sit next to the title on wider screens.
  *
  * Talks to:
- *   - src/components/NavTabs.tsx, src/app/globals.css
+ *   - src/components/NavTabs.tsx, LintReminder.tsx, src/app/globals.css
  *   - Wraps src/app/page.tsx (Live), cycles/page.tsx and lint/page.tsx.
  */
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Suspense } from "react";
 
+import LintReminder from "@/components/LintReminder";
 import NavTabs, { NavTabsList } from "@/components/NavTabs";
 
 import "./globals.css";
@@ -43,6 +45,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
             </Suspense>
           </div>
         </header>
+        <LintReminder />
         <main className="mx-auto w-full max-w-3xl flex-1 px-4 py-6">{children}</main>
       </body>
     </html>

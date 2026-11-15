@@ -14,7 +14,15 @@
 import "server-only";
 
 import { getPool } from "./db";
-import type { ChartPoint, CycleListItem, CycleSummary, DeviceStatus } from "./types";
+import type {
+  ChartPoint,
+  CycleListItem,
+  CycleSummary,
+  DeviceStatus,
+  FilterCleanedResult,
+  LintData,
+  LintStatusValue,
+} from "./types";
 
 const iso = (d: Date | null): string | null => (d ? d.toISOString() : null);
 
@@ -147,6 +155,97 @@ export async function getCycles(deviceId: string, limit = 200): Promise<CycleLis
     lintStatus: r.lint_status ?? null,
     lintScore: num(r.lint_score),
   }));
+}
+
+/**
+ * Current lint verdict, the thresholds, and (if historyLimit > 0) the newest
+ * `historyLimit` cycles of the lint trend, oldest first.
+ */
+export async function getLintData(deviceId: string, historyLimit = 30): Promise<LintData | null> {
+  const pool = getPool();
+  const [statusRes, settingsRes, historyRes] = await Promise.all([
+    pool.query(`SELECT * FROM lint_status WHERE device_id = $1`, [deviceId]),
+    pool.query(`SELECT * FROM lint_settings WHERE id = 1`),
+    historyLimit > 0
+      ? pool.query(
+          `SELECT * FROM (
+               SELECT cycle_id, cycle_no, started_at, cleaned_at, dp_steady, ref_dp, score,
+                      status, possible_vent_blockage
+                 FROM lint_history WHERE device_id = $1
+                ORDER BY started_at DESC LIMIT $2) recent
+            ORDER BY started_at`,
+          [deviceId, historyLimit],
+        )
+      : Promise.resolve({ rows: [] as Record<string, unknown>[] }),
+  ]);
+  const s = statusRes.rows[0];
+  const t = settingsRes.rows[0];
+  if (!s || !t) return null;
+  return {
+    lint: {
+      status: s.status,
+      possibleVentBlockage: s.possible_vent_blockage,
+      lastCleanedAt: iso(s.last_cleaned_at),
+      cyclesSinceCleaning: Number(s.cycles_since_cleaning),
+      refDp: num(s.ref_dp),
+      latestCycleId: s.latest_cycle_id == null ? null : Number(s.latest_cycle_id),
+      latestCycleAt: iso(s.latest_cycle_at),
+      latestDp: num(s.latest_dp),
+      score: num(s.score),
+    },
+    settings: {
+      referenceCycles: t.reference_cycles,
+      checkSoonScore: t.check_soon_score,
+      cleanNowScore: t.clean_now_score,
+      ventScore: t.vent_score,
+    },
+    history: historyRes.rows.map((h) => ({
+      cycleId: Number(h.cycle_id),
+      cycleNo: h.cycle_no as number,
+      startedAt: iso(h.started_at as Date)!,
+      cleanedAt: iso(h.cleaned_at as Date | null),
+      dpSteady: Number(h.dp_steady),
+      refDp: num(h.ref_dp),
+      score: num(h.score),
+      status: h.status as LintStatusValue,
+      possibleVentBlockage: h.possible_vent_blockage as boolean,
+    })),
+  };
+}
+
+/**
+ * Record "lint screen cleaned now". If one was already recorded in the last minute
+ * (double-click, two phones at once) nothing new is added and that one is returned.
+ * An advisory lock makes the check-then-insert safe against simultaneous requests.
+ */
+export async function recordFilterCleaned(deviceId: string, note: string | null): Promise<FilterCleanedResult> {
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SELECT pg_advisory_xact_lock(hashtext('filter_cleaned:' || $1))", [deviceId]);
+    const recent = await client.query(
+      `SELECT id, time FROM events
+        WHERE device_id = $1 AND type = 'filter_cleaned' AND time > now() - interval '1 minute'
+        ORDER BY time DESC LIMIT 1`,
+      [deviceId],
+    );
+    let row = recent.rows[0];
+    const created = !row;
+    if (created) {
+      const ins = await client.query(
+        `INSERT INTO events (device_id, type, note) VALUES ($1, 'filter_cleaned', $2) RETURNING id, time`,
+        [deviceId, note],
+      );
+      row = ins.rows[0];
+    }
+    await client.query("COMMIT");
+    return { created, eventId: Number(row.id), time: iso(row.time)! };
+  } catch (e) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw e;
+  } finally {
+    client.release();
+  }
 }
 
 /**

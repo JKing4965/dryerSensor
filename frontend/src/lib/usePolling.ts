@@ -5,8 +5,10 @@
  *   Fetches `url` right away, then again `intervalMs` after each response finishes
  *   (so slow responses never pile up). It pauses while the browser tab is hidden
  *   and refreshes as soon as it becomes visible again.
- *   Returns { data, error, loading }. On an error the last good data is kept, so
- *   charts don't flash empty during a brief hiccup.
+ *   Returns { data, error, loading, refresh }. On an error the last good data is
+ *   kept, so charts don't flash empty during a brief hiccup.
+ *   refresh() refetches this one now; refreshAll() refetches every polling component
+ *   on the page (used after pressing "Filter cleaned").
  *
  * Talks to:
  *   - The API routes in src/app/api/. Used by browser components such as LiveView.tsx.
@@ -21,8 +23,23 @@ interface PollState<T> {
   loading: boolean;
 }
 
-export function usePolling<T>(url: string, intervalMs = 2000): PollState<T> {
+/** Fire this anywhere (e.g. after "Filter cleaned") to make every usePolling refetch now. */
+export const REFRESH_EVENT = "dryer:refresh";
+
+export function refreshAll(): void {
+  window.dispatchEvent(new Event(REFRESH_EVENT));
+}
+
+export function usePolling<T>(url: string, intervalMs = 2000): PollState<T> & { refresh: () => void } {
   const [state, setState] = useState<PollState<T>>({ data: null, error: null, loading: true });
+  const [nonce, setNonce] = useState(0);
+  const refresh = () => setNonce((n) => n + 1);
+
+  useEffect(() => {
+    const onRefresh = () => setNonce((n) => n + 1);
+    window.addEventListener(REFRESH_EVENT, onRefresh);
+    return () => window.removeEventListener(REFRESH_EVENT, onRefresh);
+  }, []);
 
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -60,7 +77,7 @@ export function usePolling<T>(url: string, intervalMs = 2000): PollState<T> {
       controller?.abort();
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [url, intervalMs]);
+  }, [url, intervalMs, nonce]); // a new nonce restarts polling = fetch right away
 
-  return state;
+  return { ...state, refresh };
 }

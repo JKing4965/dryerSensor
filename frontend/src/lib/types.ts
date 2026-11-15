@@ -102,6 +102,60 @@ export interface CycleListItem {
   lintScore: number | null;
 }
 
+/** Current lint verdict for the device (backend/db/views.sql lint_status). */
+export interface LintStatus {
+  status: LintStatusValue;
+  /** ΔP has moved toward zero while the dryer ran hotter: exhaust duct may be blocked. */
+  possibleVentBlockage: boolean;
+  lastCleanedAt: string | null;
+  cyclesSinceCleaning: number;
+  /** Average steady ΔP of the first cycles after cleaning ("clean filter" level), Pa. */
+  refDp: number | null;
+  latestCycleId: number | null;
+  latestCycleAt: string | null;
+  latestDp: number | null;
+  /** (refDp - latestDp) / |refDp|: 0.2 = 20% more suction than when clean. */
+  score: number | null;
+}
+
+/** Thresholds from the lint_settings table. */
+export interface LintSettings {
+  referenceCycles: number;
+  checkSoonScore: number;
+  cleanNowScore: number;
+  ventScore: number;
+}
+
+/** One cycle in the lint trend (lint_history view). */
+export interface LintHistoryPoint {
+  cycleId: number;
+  cycleNo: number;
+  startedAt: string;
+  /** The cleaning this cycle counts from (null = before any recorded cleaning). */
+  cleanedAt: string | null;
+  dpSteady: number;
+  refDp: number | null;
+  score: number | null;
+  status: LintStatusValue;
+  possibleVentBlockage: boolean;
+}
+
+/** GET /api/lint (history omitted with ?history=0) */
+export interface LintData {
+  lint: LintStatus;
+  settings: LintSettings;
+  /** Recent cycles with features, oldest first. */
+  history: LintHistoryPoint[];
+}
+
+/** POST /api/filter-cleaned */
+export interface FilterCleanedResult {
+  /** false if a cleaning was already recorded in the last minute (double-click guard). */
+  created: boolean;
+  eventId: number;
+  time: string;
+}
+
 /** GET /api/cycles/[id] */
 export interface CycleDetail {
   cycle: CycleSummary;
