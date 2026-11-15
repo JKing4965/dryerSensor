@@ -13,14 +13,15 @@ The build plan with checkpoints is in [docs/build_plan.md](docs/build_plan.md).
 |---|---|---|
 | `arduino_code/` | Arduino C++ | Test sketches and `main.ino`. Copy the one you want into the Arduino IDE. |
 | `backend/` | Python (uv) | Bluetooth receiver, parser, simulator, tests. `backend/db/` holds the SQL schema. |
-| `frontend/` | Next.js / TypeScript | Dashboard (added in step F1). |
+| `frontend/` | Next.js / TypeScript | Dashboard. See [frontend/README.md](frontend/README.md). |
 | `docs/` | Markdown | Build plan and Bluetooth message format. |
 | `docker-compose.yml` | YAML | Runs the TimescaleDB database. |
 | `.env.example` | text | Settings template. Copy to `.env`. |
 
 ## One-time setup (each teammate)
 
-You need **uv**, **Docker Desktop** and (from step F1) **Node.js**. You do **not** need to
+You need **uv**, **Docker Desktop** and **Node.js 20.9 or newer** (the team uses 26, see
+`frontend/.nvmrc`). You do **not** need to
 install Python or any library by hand.
 
 1. Install uv:
@@ -101,7 +102,12 @@ Database tests use a separate temporary `dryer_test` database and are skipped if
 Docker isn't running.
 
 `uv run` always uses the project environment, so there is no need to activate `.venv`.
-The receiver, simulator and dashboard commands are added here as they are built.
+**Dashboard** (from `frontend/`, database running). Full details in [frontend/README.md](frontend/README.md):
+```
+cp .env.local.example .env.local     # once
+npm install                          # once, and after pulls that change package-lock.json
+npm run dev                          # http://localhost:3000
+```
 
 The Bluetooth message format the firmware must follow is in [docs/protocol.md](docs/protocol.md).
 
@@ -124,4 +130,4 @@ Always commit **both** `backend/pyproject.toml` and `backend/uv.lock`. Teammates
 2. Commit your changes and `git push -u origin <your-branch>`.
 3. Open a pull request into `main` on GitHub; a teammate reviews and merges.
 4. After a merge, everyone runs `git pull`, then `uv sync` in `backend/`
-   (and `npm install` in `frontend/` once it exists).
+   and `npm install` in `frontend/`.

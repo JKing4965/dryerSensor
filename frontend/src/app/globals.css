@@ -1,0 +1,58 @@
+/*
+ * globals.css - colors, fonts and base styles for the whole dashboard.
+ *
+ * What it does:
+ *   Loads Tailwind and defines the color tokens used everywhere (light and dark
+ *   mode follow the phone/computer setting). Use them as Tailwind classes, e.g.
+ *   bg-card, border-border, text-muted, text-ok, text-warn, text-bad, bg-accent.
+ *
+ * Talks to:
+ *   - Imported once by src/app/layout.tsx.
+ */
+@import "tailwindcss";
+
+:root {
+  --background: #f6f7f9;
+  --foreground: #15181d;
+  --card: #ffffff;
+  --border: #e2e5ea;
+  --muted: #5f6672;
+  --accent: #2563eb;
+  --ok: #15803d;
+  --warn: #b45309;
+  --bad: #b91c1c;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0d0f12;
+    --foreground: #e8eaed;
+    --card: #16191e;
+    --border: #2a2f37;
+    --muted: #9aa3af;
+    --accent: #3b82f6;
+    --ok: #4ade80;
+    --warn: #fbbf24;
+    --bad: #f87171;
+  }
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-border: var(--border);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+  --color-bad: var(--bad);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans), system-ui, sans-serif;
+}
