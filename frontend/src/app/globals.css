@@ -5,6 +5,7 @@
  *   Loads Tailwind and defines the color tokens used everywhere (light and dark
  *   mode follow the phone/computer setting). Use them as Tailwind classes, e.g.
  *   bg-card, border-border, text-muted, text-ok, text-warn, text-bad, bg-accent.
+ *   Charts use --series-1 / --series-2 directly (stroke="var(--series-1)").
  *
  * Talks to:
  *   - Imported once by src/app/layout.tsx.
@@ -21,6 +22,9 @@
   --ok: #15803d;
   --warn: #b45309;
   --bad: #b91c1c;
+  /* chart series (validated for color-blind separation and contrast on --card) */
+  --series-1: #2a78d6; /* blue: ΔP, outside temperature */
+  --series-2: #eb6834; /* orange: inside temperature */
 }
 
 @media (prefers-color-scheme: dark) {
@@ -34,6 +38,8 @@
     --ok: #4ade80;
     --warn: #fbbf24;
     --bad: #f87171;
+    --series-1: #3987e5;
+    --series-2: #d95926;
   }
 }
 

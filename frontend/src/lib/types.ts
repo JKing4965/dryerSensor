@@ -47,8 +47,47 @@ export interface DeviceStatus {
     endedAt: string | null;
     nSamples: number;
   } | null;
-  /** Server clock when this was produced, to judge how fresh lastSeen is. */
+  /** Database clock time of the last status write by the receiver. */
+  updatedAt: string | null;
+  /** Server clock when this was produced; compare with updatedAt to spot a dead receiver. */
   serverTime: string;
+}
+
+/** One dryer cycle's summary (GET /api/live, and the Cycles pages later). */
+export interface CycleSummary {
+  id: number;
+  cycleNo: number;
+  state: CycleState;
+  startedAt: string;
+  endedAt: string | null;
+  nSamples: number;
+  /** Sample count the board reported in its E line (null while running). */
+  nExpected: number | null;
+  /** Times are estimates (board restarted before uploading this cycle). */
+  timeEstimated: boolean;
+  /** Sensor offset (Pa) subtracted from ΔP; null if no baseline was available. */
+  offsetPa: number | null;
+  dpSteady: number | null;
+  tInMax: number | null;
+  durationS: number | null;
+}
+
+/** One chart point: several raw samples averaged into a time bucket. */
+export interface ChartPoint {
+  /** Bucket start, milliseconds since 1970 (UTC). */
+  t: number;
+  /** ΔP in Pa, offset-corrected when CycleSummary.offsetPa is known. */
+  dp: number;
+  tIn: number;
+  tOut: number;
+  /** At least one sample in this bucket was uploaded from the board's flash memory. */
+  flash: boolean;
+}
+
+/** GET /api/live */
+export interface LiveData {
+  cycle: CycleSummary | null;
+  points: ChartPoint[];
 }
 
 /** Error body returned by every API route when something fails. */
