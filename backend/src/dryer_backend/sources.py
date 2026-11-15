@@ -10,7 +10,7 @@ What it does:
     Sources:
         ReplaySource   lines from a text file (e.g. tests/fixtures/example_session.txt)
         SimBoard       fake board, defined in simulator.py
-        BLE source     real board over Bluetooth, defined in ble_link.py (step B4)
+        BleSource      real board over Bluetooth, defined in ble_link.py
 
 Talks to:
     - ingest.py consumes the events.

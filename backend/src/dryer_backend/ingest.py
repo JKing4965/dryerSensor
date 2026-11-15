@@ -2,7 +2,7 @@
 ingest.py - the receiver: reads board messages from a source and stores them in the database.
 
 What it does:
-    source (sim / replay / BLE) -> join packets into lines -> parse -> board time to real time
+    source (sim / replay / ble) -> join packets into lines -> parse -> board time to real time
     -> write to TimescaleDB -> acknowledge to the board.
 
     - H: updates device_status (connected, state, backlog, sensor errors), syncs time,
@@ -15,7 +15,7 @@ What it does:
     - Bad lines are logged and skipped; they never stop the receiver.
 
 Talks to:
-    - sources.py / simulator.py / ble_link.py (step B4) for input
+    - sources.py / simulator.py / ble_link.py for input
     - protocol.py, timesync.py, cycles.py, db.py
     - settings from the repo-root .env via config.py
 
@@ -23,6 +23,7 @@ How to run (from backend/, with the database running: docker compose up -d):
     uv run python -m dryer_backend.ingest --source sim --scenario normal --cycles 3
     uv run python -m dryer_backend.ingest --source sim --scenario disconnect --speed 60
     uv run python -m dryer_backend.ingest --source replay tests/fixtures/example_session.txt
+    uv run python -m dryer_backend.ingest --source ble          (real board, name from .env)
     uv run python -m dryer_backend.ingest --help
 Stop with Ctrl+C; buffered data is written before it exits.
 """
@@ -40,7 +41,7 @@ from datetime import datetime
 
 import psycopg
 
-from dryer_backend.config import ConfigError, load_settings, run_async
+from dryer_backend.config import ConfigError, Settings, load_settings, run_async
 from dryer_backend.cycles import CycleTracker
 from dryer_backend.db import Database
 from dryer_backend.protocol import (
@@ -244,7 +245,7 @@ async def run_ingest(
 # ---------------------------------------------------------------------- #
 # Command line
 # ---------------------------------------------------------------------- #
-def _make_source(args: argparse.Namespace) -> Source:
+def _make_source(args: argparse.Namespace, settings: Settings) -> Source:
     if args.source == "replay":
         if not args.file:
             raise SystemExit("--source replay needs a file, e.g. tests/fixtures/example_session.txt")
@@ -253,7 +254,9 @@ def _make_source(args: argparse.Namespace) -> Source:
         from dryer_backend.simulator import SimBoard, config_from_args
 
         return SimBoard(config_from_args(args))
-    raise SystemExit("--source ble is added in step B4 (ble_link.py)")
+    from dryer_backend.ble_link import BleSource
+
+    return BleSource(device_name=args.name or settings.ble_device_name, address=args.address)
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -267,6 +270,9 @@ def main(argv: list[str] | None = None) -> None:
                         help="where data comes from (default: sim)")  # fmt: skip
     parser.add_argument("file", nargs="?", help="protocol line file for --source replay")
     parser.add_argument("--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING"])
+    ble = parser.add_argument_group("Bluetooth options (--source ble)")
+    ble.add_argument("--name", help="board's advertised name (default: BLE_DEVICE_NAME in .env)")
+    ble.add_argument("--address", help="board's address instead of its name")
     add_sim_arguments(parser)
     args = parser.parse_args(argv)
 
@@ -280,7 +286,7 @@ def main(argv: list[str] | None = None) -> None:
     except ConfigError as e:
         raise SystemExit(str(e)) from None
 
-    source = _make_source(args)
+    source = _make_source(args, settings)
     log.info("source=%s device=%s - Ctrl+C to stop", source.name, settings.device_id)
     try:
         stats = run_async(

@@ -60,8 +60,16 @@ uv run tools/ble_reader.py --name XIAO-BLE --text
 uv run python -m dryer_backend.ingest --source sim --scenario normal --cycles 3
 uv run python -m dryer_backend.ingest --source sim --scenario disconnect --speed 60
 uv run python -m dryer_backend.ingest --source replay tests/fixtures/example_session.txt
+uv run python -m dryer_backend.ingest --source ble      # real board; name from BLE_DEVICE_NAME in .env
 uv run python -m dryer_backend.ingest --help
 ```
+With `--source ble` the receiver keeps looking for the board and reconnects by itself if
+the link drops (retrying after 2 s, then backing off to 30 s).
+
+**Testing Bluetooth before the real firmware exists:** upload `arduino_code/BLEtest.ino`,
+run `--source ble`, then paste protocol lines from `docs/protocol.md` (section 7) into the
+Arduino Serial Monitor (line ending "Newline"). The receiver's replies (`T,...`, `A,...`)
+appear in the Serial Monitor.
 Simulator scenarios: `normal` (lint builds up), `vent` (exhaust clogs), `disconnect`
 (cycle uploaded later from flash), `reboot` (board restarts, estimated times),
 `sensor_error`. `--speed 0` (default) runs instantly and back-dates the data so it ends

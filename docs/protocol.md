@@ -49,7 +49,7 @@ only parses complete lines. The firmware does not need to care where packets spl
 
 | Type | Format | When |
 |---|---|---|
-| **H** hello | `H,<version>,<boot_id>,<ms>,<state>,<backlog_count>,<err_in>,<err_out>` | **First line after every connection**, then every 30 s while connected, and **immediately whenever a sensor error code changes** |
+| **H** hello | `H,<version>,<boot_id>,<ms>,<state>,<backlog_count>,<err_in>,<err_out>` | **First line after every connection**, sent as soon as the computer subscribes to TX notifications (see below), then every 30 s while connected, and **immediately whenever a sensor error code changes** |
 | **B** baseline | `B,<boot_id>,<ms>,<p_in>,<t_in>,<p_out>,<t_out>` | While idle and connected, every 30–60 s. Live only, never saved to flash |
 | **C** cycle start | `C,<boot_id>,<cycle_no>,<ms>,<base_ms>,<base_p_in>,<base_t_in>,<base_p_out>,<base_t_out>` | When vibration starts a cycle |
 | **S** sample | `S,<boot_id>,<cycle_no>,<seq>,<ms>,<p_in>,<t_in>,<p_out>,<t_out>,<src>` | Every sample during a cycle |
@@ -57,6 +57,11 @@ only parses complete lines. The firmware does not need to care where packets spl
 | **#** comment | `# any text` | Any time, for debugging |
 
 Field notes:
+- **When "connected" starts:** the board can't send anything until the computer has
+  subscribed to TX notifications. Anything written before that is silently dropped.
+  So the firmware waits for the subscription before sending H and the backlog. Either use
+  `bleuart.setNotifyCallback(...)` or check `bleuart.notifyEnabled()` in `loop()`. The
+  connect callback alone is too early.
 - **H** `version` is `1` for this document. `state` is `idle`, `running` or `uploading`.
   `backlog_count` is the number of samples still saved in flash and not yet acknowledged.
   `err_in` / `err_out` are the **sensor error codes** (section 3.1) for the sensor under the
@@ -161,10 +166,13 @@ receiver, and paste these lines into the Arduino Serial Monitor (line ending "Ne
 
 - [ ] Advertise as `XIAO-BLE` with the NUS service
 - [ ] Pick a random non-zero `boot_id` at power-up; keep `cycle_no` in flash
-- [ ] Send `H` immediately on connect, every 30 s, and whenever a sensor error code changes
+- [ ] Send `H` as soon as the computer subscribes to notifications (not in the connect callback), every 30 s, and whenever a sensor error code changes
 - [ ] Detect sensor errors: `1` = not found on I2C, `2` = bad readings 3× in a row; send no B/S lines while either is not `0`
 - [ ] Send `B` every 30–60 s while idle and connected; keep the latest one for the next `C`
 - [ ] Convert hPa → Pa (× 100); `p_in`/`t_in` = sensor under the lint screen
 - [ ] Save every cycle (C, S…, E) to flash; upload oldest first after `H`; erase only after `A,…,1`
 - [ ] End every line with `\n`; no spaces; stay under 200 characters
+- [ ] Send each line with **one** `bleuart.write(buf, len)` call, never one byte at a time.
+      Byte-by-byte writes overflow the Bluetooth send queue and roughly every other
+      character is lost (seen with `BLEtest.ino` during checkpoint 5).
 - [ ] Don't block on `while (!Serial)`, because the board must run without USB
