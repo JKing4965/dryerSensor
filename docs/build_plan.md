@@ -68,8 +68,9 @@ dryerSensor/
 ├── backend/                       ── PYTHON (uv project) ──
 │   ├── pyproject.toml / uv.lock / .python-version
 │   ├── db/
-│   │   ├── schema.sql             SQL   — tables, hypertable, lint_settings, lint_status view
-│   │   └── seed.sql               SQL   — the 'dryer-1' device row + default lint thresholds
+│   │   ├── schema.sql             SQL   — tables, hypertable, lint_settings
+│   │   ├── seed.sql               SQL   — the 'dryer-1' device row + default lint thresholds
+│   │   └── views.sql              SQL   — lint_history + lint_status views (re-appliable without data loss)
 │   ├── src/dryer_backend/
 │   │   ├── __init__.py
 │   │   ├── config.py              reads .env (DB URL, device name, timeouts)

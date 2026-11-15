@@ -8,7 +8,8 @@ What it does:
     - H: updates device_status (connected, state, backlog, sensor errors), syncs time,
          replies with T, and closes cycles that can never finish
     - B: stores an idle baseline reading
-    - C / S / E: handled by cycles.py (create cycle, buffer samples, mark complete)
+    - C / S / E: handled by cycles.py (create cycle, buffer samples, mark complete);
+         after an E line, features.py computes the cycle's numbers for the lint verdict
     - Buffered samples are written about once a second (FLUSH_INTERVAL_S in .env) or
       every 200 samples, then acknowledged with A,<cycle>,<seq>,0. After an E line is
       stored the board gets A,<cycle>,<seq>,1 and may erase that cycle from flash.
@@ -16,7 +17,7 @@ What it does:
 
 Talks to:
     - sources.py / simulator.py / ble_link.py for input
-    - protocol.py, timesync.py, cycles.py, db.py
+    - protocol.py, timesync.py, cycles.py, features.py, db.py
     - settings from the repo-root .env via config.py
 
 How to run (from backend/, with the database running: docker compose up -d):
@@ -44,6 +45,7 @@ import psycopg
 from dryer_backend.config import ConfigError, Settings, load_settings, run_async
 from dryer_backend.cycles import CycleTracker
 from dryer_backend.db import Database
+from dryer_backend.features import update_cycle_features
 from dryer_backend.protocol import (
     Baseline,
     Comment,
@@ -201,6 +203,7 @@ class Ingestor:
                 row = await self.tracker.end(msg, when, est)
                 self.stats.cycles_completed += 1
                 await self._send(encode_ack(msg.cycle_no, max(row.last_seq, 0), done=True))
+                await update_cycle_features(self.db, row.id)  # numbers for the lint verdict
 
     def _log_sensor_codes(self, msg: Hello) -> None:
         codes = (msg.err_in, msg.err_out)

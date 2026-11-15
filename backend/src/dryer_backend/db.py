@@ -240,6 +240,54 @@ class Database:
         )
         return [r["cycle_no"] for r in await cur.fetchall()]
 
+    # -- features (features.py) ----------------------------------------- #
+    async def cycle_for_features(self, cycle_id: int) -> dict[str, Any] | None:
+        """Cycle times + baseline ΔP. Without its own baseline, use the last idle
+        reading from the 6 hours before the cycle started."""
+        return await self._one(
+            """
+            SELECT c.device_id, c.cycle_no, c.started_at, c.ended_at,
+                   COALESCE(c.baseline_dp, (
+                       SELECT r.dp FROM readings r
+                       WHERE r.device_id = c.device_id AND r.kind = 'baseline'
+                         AND r.time <= c.started_at
+                         AND r.time > c.started_at - interval '6 hours'
+                       ORDER BY r.time DESC LIMIT 1)) AS baseline_dp
+            FROM cycles c WHERE c.id = %s
+            """,
+            (cycle_id,),
+        )
+
+    async def cycle_points(self, device_id: str, cycle_no: int) -> list[dict[str, Any]]:
+        cur = await self.conn.execute(
+            "SELECT time, dp, t_in, t_out FROM readings "
+            "WHERE device_id = %s AND kind = 'cycle' AND cycle_no = %s ORDER BY seq",
+            (device_id, cycle_no),
+        )
+        return await cur.fetchall()
+
+    async def store_features(
+        self,
+        cycle_id: int,
+        dp_steady: float | None,
+        t_in_max: float | None,
+        dt_mean: float | None,
+        duration_s: float | None,
+    ) -> None:
+        await self.conn.execute(
+            "UPDATE cycles SET dp_steady = %s, t_in_max = %s, dt_mean = %s, duration_s = %s, "
+            "features_at = now() WHERE id = %s",
+            (dp_steady, t_in_max, dt_mean, duration_s, cycle_id),
+        )
+
+    async def complete_cycle_ids(self, device_id: str, only_missing: bool) -> list[int]:
+        cur = await self.conn.execute(
+            "SELECT id FROM cycles WHERE device_id = %s AND state = 'complete' "
+            "AND (NOT %s OR features_at IS NULL) ORDER BY started_at",
+            (device_id, only_missing),
+        )
+        return [r["id"] for r in await cur.fetchall()]
+
     # -- readings ------------------------------------------------------- #
     async def insert_baseline(
         self,

@@ -82,6 +82,17 @@ uv run python -m dryer_backend.simulator --scenario normal --cycles 2
 
 To wipe all stored data and start fresh: `docker compose down -v` then `docker compose up -d`.
 
+**Lint logic.** The receiver computes each cycle's numbers when it ends (`features.py`).
+The verdict comes from the `lint_status` / `lint_history` views in `backend/db/views.sql`:
+```
+docker compose exec db psql -U dryer -d dryer -c "SELECT * FROM lint_status"
+```
+- Tune thresholds without code: `UPDATE lint_settings SET check_soon_score = 0.20;`
+- After editing `views.sql`, re-apply it **without** losing data:
+  `docker compose exec -T db psql -U dryer -d dryer -f /docker-entrypoint-initdb.d/views.sql`
+- After editing `features.py`, recompute stored cycles (from `backend/`):
+  `uv run python -m dryer_backend.features --all`
+
 **Tests** (from `backend/`):
 ```
 uv run pytest
