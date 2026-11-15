@@ -70,6 +70,42 @@ export interface CycleSummary {
   dpSteady: number | null;
   tInMax: number | null;
   durationS: number | null;
+  /** Average inside-minus-outside temperature during steady running (°C). */
+  dtMean: number | null;
+  /** The idle reading taken just before the cycle (null if the board had none). */
+  baselineAt: string | null;
+  baselineTIn: number | null;
+  baselineTOut: number | null;
+  /** Lint verdict for this cycle (backend/db/views.sql lint_history); null if it has no features. */
+  lintStatus: LintStatusValue | null;
+  lintScore: number | null;
+}
+
+/** Lint verdicts from backend/db/views.sql. */
+export type LintStatusValue = "calibrating" | "no_signal" | "clean" | "check_soon" | "clean_now";
+
+/** One row of GET /api/cycles (the Cycles table). */
+export interface CycleListItem {
+  id: number;
+  cycleNo: number;
+  state: CycleState;
+  startedAt: string;
+  endedAt: string | null;
+  nSamples: number;
+  nExpected: number | null;
+  timeEstimated: boolean;
+  dpSteady: number | null;
+  tInMax: number | null;
+  /** Length in seconds (so far, for a running cycle). */
+  durationS: number | null;
+  lintStatus: LintStatusValue | null;
+  lintScore: number | null;
+}
+
+/** GET /api/cycles/[id] */
+export interface CycleDetail {
+  cycle: CycleSummary;
+  points: ChartPoint[];
 }
 
 /** One chart point: several raw samples averaged into a time bucket. */

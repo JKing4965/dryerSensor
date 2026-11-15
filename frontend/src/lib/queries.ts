@@ -14,7 +14,7 @@
 import "server-only";
 
 import { getPool } from "./db";
-import type { ChartPoint, CycleSummary, DeviceStatus } from "./types";
+import type { ChartPoint, CycleListItem, CycleSummary, DeviceStatus } from "./types";
 
 const iso = (d: Date | null): string | null => (d ? d.toISOString() : null);
 
@@ -78,13 +78,16 @@ export async function getCycleSummary(
 ): Promise<CycleSummary | null> {
   const { rows } = await getPool().query(
     `SELECT c.id, c.cycle_no, c.state, c.started_at, c.ended_at, c.n_samples, c.n_expected,
-            c.time_estimated, c.dp_steady, c.t_in_max, c.duration_s,
+            c.time_estimated, c.dp_steady, c.t_in_max, c.duration_s, c.dt_mean,
+            c.baseline_at, c.baseline_t_in, c.baseline_t_out,
             COALESCE(c.baseline_dp, (
                 SELECT r.dp FROM readings r
                  WHERE r.device_id = c.device_id AND r.kind = 'baseline'
                    AND r.time <= c.started_at AND r.time > c.started_at - interval '6 hours'
-                 ORDER BY r.time DESC LIMIT 1)) AS offset_pa
+                 ORDER BY r.time DESC LIMIT 1)) AS offset_pa,
+            h.status AS lint_status, h.score AS lint_score
        FROM cycles c
+       LEFT JOIN lint_history h ON h.cycle_id = c.id
       WHERE c.device_id = $1 AND ($2::bigint IS NULL OR c.id = $2)
       ORDER BY c.started_at DESC
       LIMIT 1`,
@@ -105,7 +108,45 @@ export async function getCycleSummary(
     dpSteady: num(r.dp_steady),
     tInMax: num(r.t_in_max),
     durationS: num(r.duration_s),
+    dtMean: num(r.dt_mean),
+    baselineAt: iso(r.baseline_at),
+    baselineTIn: num(r.baseline_t_in),
+    baselineTOut: num(r.baseline_t_out),
+    lintStatus: r.lint_status ?? null,
+    lintScore: num(r.lint_score),
   };
+}
+
+/** The newest `limit` cycles, newest first, each with its lint status at the time. */
+export async function getCycles(deviceId: string, limit = 200): Promise<CycleListItem[]> {
+  const { rows } = await getPool().query(
+    `SELECT c.id, c.cycle_no, c.state, c.started_at, c.ended_at, c.n_samples, c.n_expected,
+            c.time_estimated, c.dp_steady, c.t_in_max,
+            COALESCE(c.duration_s, EXTRACT(EPOCH FROM (COALESCE(c.ended_at, now()) - c.started_at)))
+                AS duration_s,
+            h.status AS lint_status, h.score AS lint_score
+       FROM cycles c
+       LEFT JOIN lint_history h ON h.cycle_id = c.id
+      WHERE c.device_id = $1
+      ORDER BY c.started_at DESC
+      LIMIT $2`,
+    [deviceId, limit],
+  );
+  return rows.map((r) => ({
+    id: Number(r.id),
+    cycleNo: r.cycle_no,
+    state: r.state,
+    startedAt: iso(r.started_at)!,
+    endedAt: iso(r.ended_at),
+    nSamples: r.n_samples,
+    nExpected: r.n_expected,
+    timeEstimated: r.time_estimated,
+    dpSteady: num(r.dp_steady),
+    tInMax: num(r.t_in_max),
+    durationS: num(r.duration_s),
+    lintStatus: r.lint_status ?? null,
+    lintScore: num(r.lint_score),
+  }));
 }
 
 /**
