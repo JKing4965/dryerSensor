@@ -176,6 +176,17 @@ on Vercel):
 cd backend
 uv run python -m dryer_backend.remote
 ```
+**Start it automatically at login (Windows)** with the script in `scripts/`. It restarts the
+receiver after a crash, never starts a second copy, and logs to `logs\receiver.log`.
+Run these from the repo root in PowerShell:
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\start-receiver.ps1 -Install
+powershell -ExecutionPolicy Bypass -File scripts\start-receiver.ps1 -Status
+powershell -ExecutionPolicy Bypass -File scripts\start-receiver.ps1 -Uninstall
+```
+For unattended use, also stop the PC from sleeping while plugged in
+(`powercfg /change standby-timeout-ac 0`). Cycles recorded while it sleeps wait in the
+board's memory (up to 4) and upload when it wakes.
 The one-off receiver, `uv run python -m dryer_backend.ingest --source ble`, still works for
 testing (and `--source sim` in section 3). Run only one at a time: the board accepts a
 single connection, so the card shows "Connected by a receiver started in a terminal" and

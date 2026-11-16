@@ -13,6 +13,9 @@ out/
 next-env.d.ts
 *.tsbuildinfo
 
+# Receiver logs (scripts/start-receiver.ps1)
+logs/
+
 # Local settings and secrets (commit the *.example versions instead)
 .env
 .env*.local

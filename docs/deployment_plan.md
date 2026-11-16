@@ -193,8 +193,19 @@ The dashboard can't start programs on the PC. Instead, the receiver runs on the 
 - `.env` `DATABASE_URL` → cloud (done in D2).
 - **Two ways to run the standby receiver** (D3b), documented in the README:
   1. **Manual:** `uv run python -m dryer_backend.remote` in a terminal, or the local dashboard's Connect button.
-  2. **Automatic at login:** a new `scripts/start-receiver.ps1`, registered with **Windows Task Scheduler** ("At log on", restart on failure). I'll give the exact Task Scheduler steps or a one-line `Register-ScheduledTask` command for you to run.
-- **Power:** set Windows to not sleep while plugged in, or accept that cycles recorded during sleep wait in the board's flash (up to 4) and upload when the PC wakes.
+  2. **Automatic at login:** `scripts/start-receiver.ps1`:
+     - runs `python -m dryer_backend.remote` from `backend\.venv`, restarts it 10 s after a crash, and logs to `logs\receiver.log` (rotated at 5 MB, git-ignored)
+     - exits straight away if a standby receiver is already running, so it never starts a second one
+     - `-Install` registers a Task Scheduler task, **"DryerSensor Receiver"** (at your login, hidden window, no time limit, keeps running on battery), and starts it
+     - `-Status` shows the task, the receiver process and the last log lines; `-Uninstall` removes both
+
+     You run `-Install` yourself (it changes Windows settings):
+     `powershell -ExecutionPolicy Bypass -File scripts\start-receiver.ps1 -Install`
+- **Power:** set Windows to not sleep while plugged in, or accept that cycles recorded during sleep wait in the board's flash (up to 4) and upload when the PC wakes. Either:
+  - **Settings → System → Power & battery → Screen, sleep & hibernate timeouts →** "Make my device sleep after" (plugged in): **Never**, or
+  - in PowerShell: `powercfg /change standby-timeout-ac 0`
+
+  Optional: in **Device Manager → Bluetooth → your adapter → Power Management**, untick "Allow the computer to turn off this device to save power".
 
 > **🛑 CHECKPOINT D4: everyday use**
 > - Reboot the PC and log in: the receiver starts by itself, and the Vercel dashboard shows "Connected" without you doing anything.
