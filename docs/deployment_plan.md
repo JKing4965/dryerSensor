@@ -211,11 +211,17 @@ The dashboard can't start programs on the PC. Instead, the receiver runs on the 
 > - Reboot the PC and log in: the receiver starts by itself, and the Vercel dashboard shows "Connected" without you doing anything.
 > - Run a real dryer cycle, or a shaken test cycle. It appears live on the Vercel URL on your phone and completes with lint numbers.
 > - **Offline test:** stop the receiver, run a short cycle, start it again. The cycle uploads (dashed line) with the right times.
+>
+> ✅ **Verified 2026-11-16:** the login task starts the standby receiver, which shows Ready on the Vercel dashboard.
+>
+> **Found during D4:** `-Status` couldn't read the log while the receiver ran, because a pipeline `Add-Content` locks the file. The script now writes and reads the log in shared mode.
 
 ### D5. Documentation and hand-off
-- **README:** a new "Deployment" section covering the architecture, which secrets go where, how to load the schema into a new cloud database, how to redeploy, the PC auto-start, and troubleshooting rows (bad password, encryption errors, Vercel region, 401s).
-- Update `frontend/README.md`.
-- This plan gets its checkpoints ticked.
+- **README:**
+  - a "Deployment" overview at the top
+  - a new section, "8. Deployment (Vercel + Timescale Cloud)": the architecture, a table of where each setting goes (receiver `.env` vs `frontend/.env.local` vs Vercel), setting up a new cloud database, the Vercel project settings, redeploying and logging everyone out, the PC receiver, switching between local and cloud, and 9 troubleshooting rows
+- `frontend/README.md`: Vercel, the settings, login and proxy, the remote Connect button, `npm test`, and a note on `AGENTS.md`.
+- This plan: D3, D3b and D4 marked verified.
 
 > **🛑 CHECKPOINT D5: a teammate can use it**
 > - A teammate opens the Vercel URL, logs in with the shared password, and sees live data.

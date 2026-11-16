@@ -10,7 +10,15 @@ dashboard shows live data, cycle history, and whether the lint screen needs clea
  arduino_code/               backend/                       docker-compose.yml            frontend/  (http://localhost:3000)
 ```
 
+There are two ways to run it:
+- **Local (development):** everything on one computer, with the database in Docker. The commands are below.
+- **Deployed:** the dashboard on **Vercel**, the database on **Timescale Cloud**, and the
+  receiver on the PC by the dryer, so the dashboard works from any phone. See
+  [8. Deployment](#8-deployment-vercel--timescale-cloud).
+
 - How it was built, step by step with checkpoints: [docs/build_plan.md](docs/build_plan.md)
+  (software), [docs/firmware_plan.md](docs/firmware_plan.md) (board) and
+  [docs/deployment_plan.md](docs/deployment_plan.md) (cloud)
 - The Bluetooth message format the firmware must follow: [docs/protocol.md](docs/protocol.md)
 
 ## Repository layout
@@ -306,6 +314,106 @@ docker compose exec db psql -U dryer -d dryer -c "SELECT cycle_no, dp_steady, sc
 | `create-next-app`/`npm` fails with `EPERM … rename` on Windows | A file watcher or antivirus briefly locked a folder. Run the command again. |
 | `uv run pytest`: `Failed to spawn: pytest … Application Control policy has blocked this file` | Windows blocked the `pytest.exe` launcher, which happens when the repo sits in a Temp folder. Run `uv run python -m pytest` instead, or move the repo. |
 | `uv sync` complains about the uv version | The lockfile needs uv ≥ 0.9. Run `uv self update`. |
+
+## 8. Deployment (Vercel + Timescale Cloud)
+
+```
+[XIAO board] ─BLE─▶ [standby receiver on the PC] ─▶ [Timescale Cloud] ◀── [dashboard on Vercel] ◀── phones / laptops
+                     scripts/start-receiver.ps1        same SQL as local     frontend/, password login
+```
+
+- **Using it:** open the Vercel URL, log in with the shared password, and press **Connect to
+  sensor** on the Live tab. The PC by the dryer must be on, with the standby receiver running
+  (it starts at login once installed). The card shows **PC receiver offline / Ready /
+  Searching… / Connected**.
+- **The full setup story,** with checkpoints and the reasons behind each choice, is in
+  [docs/deployment_plan.md](docs/deployment_plan.md).
+
+### Where each setting goes
+
+Never commit these files, and never paste the database string or password into chat or
+commits. Share the Vercel URL and the dashboard password privately.
+
+| Setting | Repo-root `.env` (receiver on the PC) | `frontend/.env.local` (local dashboard) | Vercel → Settings → Environment Variables |
+|---|---|---|---|
+| `DATABASE_URL` | Cloud string ending `?sslmode=require` (**no** `uselibpqcompat`) | Cloud string ending `?sslmode=require&uselibpqcompat=true`, or the Docker address for local development | Same as `frontend/.env.local` (with `&uselibpqcompat=true`) |
+| `DEVICE_ID` | `dryer-1` | `dryer-1` | `dryer-1` |
+| `BLE_DEVICE_NAME` | `XIAO-BLE` | — | — |
+| `DASHBOARD_PASSWORD` | — | Optional (unset = no login) | **Required** |
+| `AUTH_SECRET` | — | With the password | **Required** (long random string) |
+| `RECEIVER_CONTROL` | — | Optional (on by default) | Leave unset (off on Vercel automatically) |
+
+- **Same database everywhere:** the receiver and the dashboard must point at the **same**
+  database, or the card shows "PC receiver offline" while the receiver is running.
+- **Why `uselibpqcompat` is dashboard-only:** the Node database driver treats
+  `sslmode=require` as full certificate verification, which Timescale's certificates don't
+  pass on Vercel. `uselibpqcompat=true` keeps the connection encrypted without that check.
+  The Python receiver already behaves this way.
+
+Generate a password or secret with:
+```powershell
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
+
+### Setting up a new cloud database
+
+Create a Timescale Cloud service, then load the SQL with the `psql` inside the local Docker
+container (`docker compose up -d` first). Run from the repo root in PowerShell:
+```powershell
+$env:CLOUD_URL = "postgres://tsdbadmin:YOUR_PASSWORD@YOUR_HOST:YOUR_PORT/tsdb?sslmode=require"
+docker compose exec -T db psql "$env:CLOUD_URL" -v ON_ERROR_STOP=1 -f /docker-entrypoint-initdb.d/schema.sql
+docker compose exec -T db psql "$env:CLOUD_URL" -v ON_ERROR_STOP=1 -f /docker-entrypoint-initdb.d/seed.sql
+docker compose exec -T db psql "$env:CLOUD_URL" -v ON_ERROR_STOP=1 -f /docker-entrypoint-initdb.d/views.sql
+Remove-Item Env:CLOUD_URL
+```
+A database created this way already has everything. `backend/db/migrations/` is only for
+databases created **before** a change (load a migration the same way, with
+`-f /docker-entrypoint-initdb.d/migrations/<file>.sql`). After editing `views.sql`,
+re-apply it the same way; no data is lost.
+
+### The Vercel project
+
+| Setting | Value |
+|---|---|
+| Repository | `JKing4965/dryerSensor`, imported once |
+| **Root Directory** | **`frontend`** |
+| Framework | Next.js (detected) |
+| Environment Variables | See the table above, for **Production** and **Preview** |
+| Functions region | Closest to the Timescale service, e.g. Washington, D.C. (`iad1`) for `us-east-1` |
+
+- **Every push to `main` redeploys** production. Other branches get preview URLs.
+- **After changing an environment variable,** redeploy (**Deployments → ⋯ → Redeploy**). Changes only reach new deployments.
+- **To log everyone out,** change `AUTH_SECRET` and redeploy.
+
+### The receiver on the PC
+
+Install the login task once (see section 2), then check on it whenever needed:
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\start-receiver.ps1 -Status
+```
+Keep the PC awake while plugged in: `powercfg /change standby-timeout-ac 0`.
+
+### Switching your computer between local and cloud
+
+Change `DATABASE_URL` in **both** `.env` and `frontend/.env.local`, then restart
+`npm run dev` and the receiver (`-Uninstall`, then `-Install`, or Ctrl+C and start it again).
+
+**Teammates' local setups need no cloud access:** the defaults in `.env.example` and
+`frontend/.env.local.example` point at Docker and have no login.
+
+### Deployment troubleshooting
+
+| Symptom | Cause and fix |
+|---|---|
+| Vercel build fails with "No Next.js version detected" or can't find `package.json` | **Root Directory** isn't `frontend`. |
+| Dashboard: "self-signed certificate in certificate chain" | The dashboard's `DATABASE_URL` is missing `&uselibpqcompat=true`. Add it in Vercel (or `.env.local`), then redeploy. |
+| Receiver: `invalid URI query parameter "uselibpqcompat"` or a connection error | `uselibpqcompat` was added to the repo-root `.env`. Remove it: it's only for the dashboard. |
+| Vercel: every page goes to /login, and the right password says "Wrong password" | `DASHBOARD_PASSWORD` isn't set for this environment (Production / Preview), or it was changed without a redeploy |
+| Vercel: "Not logged in" errors after a while | The 30-day login expired or `AUTH_SECRET` changed. Log in again. |
+| Card: "PC receiver offline" while the receiver runs | The receiver's `.env` points at a different database than Vercel. Run `-Status` and check its log. |
+| Card: "Searching for the sensor…" for a long time | The board is off or out of range, or Bluetooth is off on the PC (log: "Bluetooth radio is not powered on"). |
+| Dashboard: "The receiver_control table is missing" | The cloud database predates the remote button. Load `migrations/001_receiver_control.sql` (see above). |
+| Pages are slow on Vercel | The functions region is far from the Timescale region. |
 
 ## Adding or updating libraries
 
