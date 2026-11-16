@@ -142,8 +142,10 @@ each verified checkpoint is committed to `main`.
 > - Cycles and Lint pages load. **Filter cleaned** works, and the banner updates.
 > - Vercel's function logs show no database connection errors.
 >
+> ✅ **Verified 2026-11-16** (login, pages and Filter cleaned on the Vercel URL).
+>
 > **Found during D3:**
-> - The Node database driver treats `sslmode=require` as full certificate verification, and Timescale's chain isn't trusted on Vercel. Fix: append `&uselibpqcompat=true` to `DATABASE_URL`, which keeps the connection encrypted, the same as the Python receiver.
+> - The Node database driver treats `sslmode=require` as full certificate verification, and Timescale's chain isn't trusted on Vercel. Fix: append `&uselibpqcompat=true` to the **dashboard's** `DATABASE_URL` (Vercel settings and `frontend/.env.local`), which keeps the connection encrypted, the same as the Python receiver. **Don't add it to the repo-root `.env`:** that option is only for the Node driver, and the Python receiver's standard PostgreSQL library already treats `require` as "encrypt, don't verify".
 > - With the button hidden on Vercel there was no way to connect from the website, so step D3b was added.
 
 ### D3b. Remote Connect button (works from Vercel)
@@ -181,6 +183,11 @@ The dashboard can't start programs on the PC. Instead, the receiver runs on the 
 > - Press **Disconnect**: the board disconnects (its blue LED goes off) and the card shows "Ready".
 > - Stop the standby receiver with Ctrl+C: within about 15 s the card shows "PC receiver offline".
 > - Local `npm run dev` without a standby receiver running: Connect starts one and connects.
+>
+> ✅ **Verified 2026-11-16** from a phone on the Vercel URL, with the standby receiver on the PC.
+>
+> **Found during D3b:**
+> - "PC receiver offline" on the phone while the receiver was running meant the repo-root `.env` still pointed at **local Docker**: the heartbeat went to the wrong database. The receiver (`.env`) and the dashboard (`frontend/.env.local` / Vercel) must use the **same** database.
 
 ### D4. Receiver on the PC, for everyday use
 - `.env` `DATABASE_URL` → cloud (done in D2).
