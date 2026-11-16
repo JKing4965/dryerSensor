@@ -17,6 +17,7 @@
  *   - Used by src/app/api/receiver/route.ts.
  *
  * Settings (optional, frontend/.env.local):
+ *   RECEIVER_CONTROL on / off. Unset = on locally, off on Vercel (see controlEnabled()).
  *   BACKEND_DIR      path to backend/ (default: ../backend next to frontend/)
  *   RECEIVER_PYTHON  Python to use (default: the backend's .venv Python)
  */
@@ -50,8 +51,11 @@ const state: ReceiverState = (g.dryerReceiver ??= {
   partial: "",
 });
 
+// The receiver lives outside this app and is only launched locally, never bundled.
+// The `turbopackIgnore` comments stop the build from pulling the whole project into the
+// deployed server code (Turbopack can't tell these paths apart from data files).
 function backendDir(): string {
-  return path.resolve(process.env.BACKEND_DIR ?? path.join(process.cwd(), "..", "backend"));
+  return path.resolve(/*turbopackIgnore: true*/ process.env.BACKEND_DIR ?? path.join(process.cwd(), "..", "backend"));
 }
 
 function pythonPath(): string {
@@ -72,12 +76,25 @@ function note(text: string): void {
   state.log.push(`[dashboard] ${text}`);
 }
 
+/**
+ * Whether this dashboard may start/stop the receiver. RECEIVER_CONTROL=on/off decides;
+ * if unset it's ON locally and OFF on Vercel (which sets VERCEL=1), because a cloud
+ * server can't run a Bluetooth program on your PC.
+ */
+export function controlEnabled(): boolean {
+  const v = (process.env.RECEIVER_CONTROL ?? "").trim().toLowerCase();
+  if (["off", "false", "0", "no"].includes(v)) return false;
+  if (["on", "true", "1", "yes"].includes(v)) return true;
+  return process.env.VERCEL !== "1";
+}
+
 export function isRunning(): boolean {
   return state.proc !== null && state.proc.exitCode === null && state.proc.signalCode === null;
 }
 
 export function status(): ReceiverStatus {
   return {
+    controlEnabled: controlEnabled(),
     running: isRunning(),
     pid: isRunning() ? (state.proc?.pid ?? null) : null,
     startedAt: state.startedAt,
@@ -89,9 +106,10 @@ export function status(): ReceiverStatus {
 
 /** Starts the Bluetooth receiver. Throws a readable Error if it can't. */
 export function start(): ReceiverStatus {
+  if (!controlEnabled()) throw new Error("Receiver control is turned off on this server");
   if (isRunning()) return status();
   const py = pythonPath();
-  if (!existsSync(py)) {
+  if (!existsSync(/*turbopackIgnore: true*/ py)) {
     throw new Error(`Python not found at ${py}. Run "uv sync" in backend/ first.`);
   }
   state.log = [];
@@ -99,7 +117,7 @@ export function start(): ReceiverStatus {
   state.exitCode = null;
   state.exitedAt = null;
   note(`starting receiver: ${path.basename(py)} -m dryer_backend.ingest --source ble`);
-  const proc = spawn(py, ["-m", "dryer_backend.ingest", "--source", "ble", "--control-stdin"], {
+  const proc = spawn(/*turbopackIgnore: true*/ py, ["-m", "dryer_backend.ingest", "--source", "ble", "--control-stdin"], {
     cwd: backendDir(),
     env: { ...process.env, PYTHONUNBUFFERED: "1" },
     windowsHide: true,

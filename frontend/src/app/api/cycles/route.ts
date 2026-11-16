@@ -14,12 +14,14 @@
  */
 import { connection, NextResponse, type NextRequest } from "next/server";
 
+import { isAuthorized, unauthorized } from "@/lib/auth";
 import { DEVICE_ID } from "@/lib/db";
 import { getCycles } from "@/lib/queries";
 import type { ApiError, CycleListItem } from "@/lib/types";
 
 export async function GET(req: NextRequest): Promise<NextResponse<CycleListItem[] | ApiError>> {
   await connection(); // always read fresh data
+  if (!(await isAuthorized())) return unauthorized();
   const limit = Math.min(1000, Math.max(1, Number(req.nextUrl.searchParams.get("limit")) || 200));
   try {
     return NextResponse.json(await getCycles(DEVICE_ID, limit));

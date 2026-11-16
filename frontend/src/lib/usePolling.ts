@@ -9,6 +9,7 @@
  *   kept, so charts don't flash empty during a brief hiccup.
  *   refresh() refetches this one now; refreshAll() refetches every polling component
  *   on the page (used after pressing "Filter cleaned").
+ *   A 401 (login expired) sends the browser to /login, which then returns to this page.
  *
  * Talks to:
  *   - The API routes in src/app/api/. Used by browser components such as LiveView.tsx.
@@ -52,6 +53,14 @@ export function usePolling<T>(url: string, intervalMs = 2000): PollState<T> & { 
       controller = new AbortController();
       try {
         const res = await fetch(url, { signal: controller.signal, cache: "no-store" });
+        if (res.status === 401 && window.location.pathname !== "/login") {
+          // Login expired or was revoked: back to the login page, then return here.
+          const here = window.location.pathname + window.location.search;
+          // Full page load on purpose: stops every polling component at once.
+          // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+          window.location.assign(`/login?next=${encodeURIComponent(here)}`);
+          return;
+        }
         const body = await res.json();
         if (!res.ok) throw new Error(body?.detail ? `${body.error}: ${body.detail}` : body?.error ?? res.statusText);
         setState({ data: body as T, error: null, loading: false });

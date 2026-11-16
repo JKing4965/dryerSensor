@@ -18,12 +18,14 @@
  */
 import { connection, NextResponse, type NextRequest } from "next/server";
 
+import { isAuthorized, unauthorized } from "@/lib/auth";
 import { DEVICE_ID } from "@/lib/db";
 import { getLintData } from "@/lib/queries";
 import type { ApiError, LintData } from "@/lib/types";
 
 export async function GET(req: NextRequest): Promise<NextResponse<LintData | ApiError>> {
   await connection(); // always read fresh data
+  if (!(await isAuthorized())) return unauthorized();
   const withHistory = req.nextUrl.searchParams.get("history") !== "0";
   try {
     const data = await getLintData(DEVICE_ID, withHistory ? 30 : 0);

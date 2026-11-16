@@ -15,12 +15,14 @@
  */
 import { connection, NextResponse } from "next/server";
 
+import { isAuthorized, unauthorized } from "@/lib/auth";
 import { DEVICE_ID } from "@/lib/db";
 import { getCyclePoints, getCycleSummary } from "@/lib/queries";
 import type { ApiError, LiveData } from "@/lib/types";
 
 export async function GET(): Promise<NextResponse<LiveData | ApiError>> {
   await connection(); // always read fresh data
+  if (!(await isAuthorized())) return unauthorized();
   try {
     const cycle = await getCycleSummary(DEVICE_ID);
     const points = cycle ? await getCyclePoints(DEVICE_ID, cycle) : [];

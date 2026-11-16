@@ -150,6 +150,8 @@ export interface LintData {
 
 /** GET/POST /api/receiver: the Bluetooth receiver started from the dashboard. */
 export interface ReceiverStatus {
+  /** This server may start/stop the receiver (false on Vercel, or RECEIVER_CONTROL=off). */
+  controlEnabled: boolean;
   /** A receiver started by this dashboard is running right now. */
   running: boolean;
   pid: number | null;

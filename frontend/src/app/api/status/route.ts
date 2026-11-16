@@ -15,12 +15,14 @@
  */
 import { connection, NextResponse } from "next/server";
 
+import { isAuthorized, unauthorized } from "@/lib/auth";
 import { DEVICE_ID } from "@/lib/db";
 import { getDeviceStatus } from "@/lib/queries";
 import type { ApiError, DeviceStatus } from "@/lib/types";
 
 export async function GET(): Promise<NextResponse<DeviceStatus | ApiError>> {
   await connection(); // always read fresh data; never pre-build this response
+  if (!(await isAuthorized())) return unauthorized();
   try {
     const status = await getDeviceStatus(DEVICE_ID);
     if (!status) {

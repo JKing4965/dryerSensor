@@ -16,6 +16,7 @@
  */
 import { connection, NextResponse } from "next/server";
 
+import { isAuthorized, unauthorized } from "@/lib/auth";
 import { DEVICE_ID } from "@/lib/db";
 import { getCyclePoints, getCycleSummary } from "@/lib/queries";
 import type { ApiError, CycleDetail } from "@/lib/types";
@@ -25,6 +26,7 @@ export async function GET(
   ctx: RouteContext<"/api/cycles/[id]">,
 ): Promise<NextResponse<CycleDetail | ApiError>> {
   await connection(); // always read fresh data
+  if (!(await isAuthorized())) return unauthorized();
   const id = Number((await ctx.params).id);
   if (!Number.isSafeInteger(id) || id < 1) {
     return NextResponse.json({ error: "Cycle id must be a positive whole number" }, { status: 400 });

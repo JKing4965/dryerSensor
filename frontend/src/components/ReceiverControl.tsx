@@ -8,6 +8,7 @@
  *   receiver's recent log under "Receiver log".
  *   If a receiver started in a terminal is already connected, the button is disabled:
  *   the board accepts only one connection, so stop that one first (Ctrl+C).
+ *   On Vercel (receiver control off) the card shows connection status only, no button.
  *
  * Talks to:
  *   - GET/POST /api/receiver (src/app/api/receiver/route.ts), polled every 2 s.
@@ -30,6 +31,20 @@ export default function ReceiverControl({ device }: { device: DeviceStatus | nul
   const runningHere = rx?.running ?? false;
   const runningElsewhere = !runningHere && boardLinked;
   const crashed = !runningHere && rx?.exitCode != null && rx.exitCode !== 0;
+
+  // On Vercel (or RECEIVER_CONTROL=off) this server can't run the receiver: status only.
+  if (rx && !rx.controlEnabled) {
+    return (
+      <div className="rounded-lg border border-border bg-card p-4">
+        <p className="text-xs font-medium uppercase tracking-wide text-muted">Bluetooth sensor</p>
+        <p className="font-semibold">{boardLinked ? "Connected to the sensor" : "Not connected"}</p>
+        <p className="text-sm text-muted">
+          The receiver runs on the computer next to the dryer
+          {boardLinked ? "." : ". Check that it's on and the receiver is running there."}
+        </p>
+      </div>
+    );
+  }
 
   async function act(action: "start" | "stop") {
     setBusy(action);
