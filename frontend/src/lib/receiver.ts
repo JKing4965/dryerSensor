@@ -1,23 +1,26 @@
 /**
- * receiver.ts - starts and stops the Python Bluetooth receiver for the dashboard (server only).
+ * receiver.ts - starts the standby receiver from the LOCAL dashboard (server only).
  *
  * What it does:
- *   The dashboard's Connect button runs the receiver as a child process of the Next.js
- *   server, from the backend's own Python environment:
- *       backend/.venv/(Scripts|bin)/python -m dryer_backend.ingest --source ble --control-stdin
- *   - start(): launches it (only one at a time) and keeps its last 200 log lines
- *   - stop():  writes "quit" to its stdin, so it saves buffered data and marks the board
- *              disconnected; if it hasn't exited after 10 s it is killed
- *   - status(): running or not, pid, start time, exit code, recent log
- *   If the Next.js server stops, the receiver's stdin closes and it stops by itself.
+ *   The Connect button works through the database (receiver_control, see
+ *   src/app/api/receiver/route.ts): a standby receiver on the PC connects when asked.
+ *   As a convenience, when the dashboard runs on the PC itself (not on Vercel) and no
+ *   standby receiver is online, Connect also starts one as a child process:
+ *       backend/.venv/(Scripts|bin)/python -m dryer_backend.remote --control-stdin
+ *   - launch():         starts it (only one at a time), keeping its last 200 log lines
+ *   - launcherStatus(): running or not, pid, times, exit code, recent log
+ *   - canLaunch():      whether this server may start programs at all
+ *   It keeps running until the Next.js server stops; its stdin then closes and it
+ *   stops by itself (marking itself "offline"). Disconnect doesn't stop it - it just
+ *   tells it to drop the Bluetooth link and wait.
  *   The process handle lives on globalThis so `npm run dev` reloads don't lose it.
  *
  * Talks to:
- *   - backend/src/dryer_backend/ingest.py (the receiver); it reads the repo-root .env.
+ *   - backend/src/dryer_backend/remote.py; it reads the repo-root .env.
  *   - Used by src/app/api/receiver/route.ts.
  *
  * Settings (optional, frontend/.env.local):
- *   RECEIVER_CONTROL on / off. Unset = on locally, off on Vercel (see controlEnabled()).
+ *   RECEIVER_CONTROL on / off. Unset = on locally, off on Vercel (see canLaunch()).
  *   BACKEND_DIR      path to backend/ (default: ../backend next to frontend/)
  *   RECEIVER_PYTHON  Python to use (default: the backend's .venv Python)
  */
@@ -27,12 +30,11 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
 
-import type { ReceiverStatus } from "./types";
+import type { LauncherStatus } from "./types";
 
 const MAX_LOG_LINES = 200;
-const STOP_TIMEOUT_MS = 10_000;
 
-interface ReceiverState {
+interface LauncherState {
   proc: ChildProcessWithoutNullStreams | null;
   startedAt: string | null;
   exitedAt: string | null;
@@ -41,8 +43,8 @@ interface ReceiverState {
   partial: string;
 }
 
-const g = globalThis as unknown as { dryerReceiver?: ReceiverState };
-const state: ReceiverState = (g.dryerReceiver ??= {
+const g = globalThis as unknown as { dryerLauncher?: LauncherState };
+const state: LauncherState = (g.dryerLauncher ??= {
   proc: null,
   startedAt: null,
   exitedAt: null,
@@ -77,26 +79,25 @@ function note(text: string): void {
 }
 
 /**
- * Whether this dashboard may start/stop the receiver. RECEIVER_CONTROL=on/off decides;
+ * Whether this server may start the standby receiver. RECEIVER_CONTROL=on/off decides;
  * if unset it's ON locally and OFF on Vercel (which sets VERCEL=1), because a cloud
  * server can't run a Bluetooth program on your PC.
  */
-export function controlEnabled(): boolean {
+export function canLaunch(): boolean {
   const v = (process.env.RECEIVER_CONTROL ?? "").trim().toLowerCase();
   if (["off", "false", "0", "no"].includes(v)) return false;
   if (["on", "true", "1", "yes"].includes(v)) return true;
   return process.env.VERCEL !== "1";
 }
 
-export function isRunning(): boolean {
+export function isLaunched(): boolean {
   return state.proc !== null && state.proc.exitCode === null && state.proc.signalCode === null;
 }
 
-export function status(): ReceiverStatus {
+export function launcherStatus(): LauncherStatus {
   return {
-    controlEnabled: controlEnabled(),
-    running: isRunning(),
-    pid: isRunning() ? (state.proc?.pid ?? null) : null,
+    running: isLaunched(),
+    pid: isLaunched() ? (state.proc?.pid ?? null) : null,
     startedAt: state.startedAt,
     exitedAt: state.exitedAt,
     exitCode: state.exitCode,
@@ -104,10 +105,10 @@ export function status(): ReceiverStatus {
   };
 }
 
-/** Starts the Bluetooth receiver. Throws a readable Error if it can't. */
-export function start(): ReceiverStatus {
-  if (!controlEnabled()) throw new Error("Receiver control is turned off on this server");
-  if (isRunning()) return status();
+/** Starts the standby receiver if it isn't already running here. Throws a readable Error. */
+export function launch(): void {
+  if (!canLaunch()) throw new Error("This server can't start programs (receiver control is off)");
+  if (isLaunched()) return;
   const py = pythonPath();
   if (!existsSync(/*turbopackIgnore: true*/ py)) {
     throw new Error(`Python not found at ${py}. Run "uv sync" in backend/ first.`);
@@ -116,8 +117,8 @@ export function start(): ReceiverStatus {
   state.partial = "";
   state.exitCode = null;
   state.exitedAt = null;
-  note(`starting receiver: ${path.basename(py)} -m dryer_backend.ingest --source ble`);
-  const proc = spawn(/*turbopackIgnore: true*/ py, ["-m", "dryer_backend.ingest", "--source", "ble", "--control-stdin"], {
+  note(`starting the standby receiver: ${path.basename(py)} -m dryer_backend.remote`);
+  const proc = spawn(/*turbopackIgnore: true*/ py, ["-m", "dryer_backend.remote", "--control-stdin"], {
     cwd: backendDir(),
     env: { ...process.env, PYTHONUNBUFFERED: "1" },
     windowsHide: true,
@@ -133,29 +134,4 @@ export function start(): ReceiverStatus {
     state.exitedAt = new Date().toISOString();
     note(signal ? `receiver stopped (${signal})` : `receiver exited with code ${code}`);
   });
-  return status();
-}
-
-/** Asks the receiver to stop cleanly; kills it if it hasn't exited after 10 s. */
-export async function stop(): Promise<ReceiverStatus> {
-  const proc = state.proc;
-  if (!proc || !isRunning()) return status();
-  note("stop requested");
-  proc.stdin.write("quit\n");
-  const exited = await new Promise<boolean>((resolve) => {
-    const timer = setTimeout(() => resolve(false), STOP_TIMEOUT_MS);
-    proc.once("exit", () => {
-      clearTimeout(timer);
-      resolve(true);
-    });
-  });
-  if (!exited) {
-    note("receiver didn't stop in time; killing it");
-    if (process.platform === "win32" && proc.pid) {
-      spawn("taskkill", ["/pid", String(proc.pid), "/T", "/F"], { windowsHide: true });
-    } else {
-      proc.kill("SIGKILL");
-    }
-  }
-  return status();
 }

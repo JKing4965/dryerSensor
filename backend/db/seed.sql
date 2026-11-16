@@ -10,7 +10,8 @@
 --     Python receiver tags every reading with that ID.
 --   - ble_name 'XIAO-BLE' must match Bluefruit.setName(...) in the firmware.
 --
--- To add another board later, insert one more row into devices and device_status.
+-- To add another board later, insert one more row into devices, device_status and
+-- receiver_control.
 
 INSERT INTO devices (device_id, name, ble_name)
 VALUES ('dryer-1', 'Dryer', 'XIAO-BLE');
@@ -19,3 +20,5 @@ INSERT INTO device_status (device_id, connected)
 VALUES ('dryer-1', false);
 
 INSERT INTO lint_settings (id) VALUES (1);   -- all thresholds use their defaults
+
+INSERT INTO receiver_control (device_id) VALUES ('dryer-1');  -- starts 'disconnected'

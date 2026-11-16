@@ -22,6 +22,7 @@ import type {
   FilterCleanedResult,
   LintData,
   LintStatusValue,
+  ReceiverStatus,
 } from "./types";
 
 const iso = (d: Date | null): string | null => (d ? d.toISOString() : null);
@@ -246,6 +247,51 @@ export async function recordFilterCleaned(deviceId: string, note: string | null)
   } finally {
     client.release();
   }
+}
+
+export const RECEIVER_ONLINE_S = 15; // heartbeat every 3 s, so 15 s = clearly gone
+
+/**
+ * The remote Connect button's row (receiver_control). Throws a readable error if the
+ * table is missing (database created before step D3b: load the migration).
+ */
+export async function getReceiverControl(deviceId: string): Promise<
+  Pick<ReceiverStatus, "desired" | "online" | "state" | "host" | "lastHeartbeat">
+> {
+  let rows;
+  try {
+    ({ rows } = await getPool().query(
+      `SELECT desired, receiver_state, receiver_host, receiver_online_at,
+              COALESCE(receiver_online_at > now() - make_interval(secs => $2), false) AS online
+         FROM receiver_control WHERE device_id = $1`,
+      [deviceId, RECEIVER_ONLINE_S],
+    ));
+  } catch (e) {
+    if ((e as { code?: string }).code === "42P01") {
+      throw new Error(
+        "The receiver_control table is missing. Load backend/db/migrations/001_receiver_control.sql into this database.",
+      );
+    }
+    throw e;
+  }
+  const r = rows[0];
+  if (!r) return { desired: "disconnected", online: false, state: "offline", host: null, lastHeartbeat: null };
+  return {
+    desired: r.desired,
+    online: r.online,
+    state: r.online ? (r.receiver_state ?? "standby") : "offline",
+    host: r.receiver_host,
+    lastHeartbeat: iso(r.receiver_online_at),
+  };
+}
+
+/** The Connect / Disconnect button: what the standby receiver should do. */
+export async function setReceiverDesired(deviceId: string, desired: "connected" | "disconnected"): Promise<void> {
+  await getPool().query(
+    `INSERT INTO receiver_control (device_id, desired, requested_at) VALUES ($1, $2, now())
+     ON CONFLICT (device_id) DO UPDATE SET desired = EXCLUDED.desired, requested_at = now()`,
+    [deviceId, desired],
+  );
 }
 
 /**

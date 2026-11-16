@@ -148,11 +148,11 @@ export interface LintData {
   history: LintHistoryPoint[];
 }
 
-/** GET/POST /api/receiver: the Bluetooth receiver started from the dashboard. */
-export interface ReceiverStatus {
-  /** This server may start/stop the receiver (false on Vercel, or RECEIVER_CONTROL=off). */
-  controlEnabled: boolean;
-  /** A receiver started by this dashboard is running right now. */
+/** What the standby receiver on the PC is doing ("offline" = no heartbeat for 15 s). */
+export type ReceiverState = "standby" | "searching" | "connected" | "offline";
+
+/** A standby receiver started by THIS dashboard server (local only). */
+export interface LauncherStatus {
   running: boolean;
   pid: number | null;
   startedAt: string | null;
@@ -160,6 +160,22 @@ export interface ReceiverStatus {
   exitCode: number | null;
   /** Its most recent log lines (oldest first). */
   log: string[];
+}
+
+/** GET/POST /api/receiver: the remote Connect button (receiver_control table). */
+export interface ReceiverStatus {
+  /** What the Connect / Disconnect button last asked for. */
+  desired: "connected" | "disconnected";
+  /** A standby receiver has sent a heartbeat in the last 15 s. */
+  online: boolean;
+  state: ReceiverState;
+  /** Computer name of the standby receiver. */
+  host: string | null;
+  lastHeartbeat: string | null;
+  /** This server can start a standby receiver itself (local dashboard, not Vercel). */
+  canLaunch: boolean;
+  /** Only when canLaunch: the receiver this server started, if any. */
+  launcher: LauncherStatus | null;
 }
 
 /** POST /api/filter-cleaned */

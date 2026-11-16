@@ -154,6 +154,24 @@ CREATE TABLE lint_settings (
 
 
 -- ---------------------------------------------------------------------------
+-- receiver_control: the dashboard's Connect button <-> the standby receiver on the PC.
+--   desired              written by the dashboard: 'connected' or 'disconnected'
+--   receiver_*           heartbeat written every ~3 s by `python -m dryer_backend.remote`
+--                        (times use the database clock, so PC clock errors don't matter)
+-- Existing databases get this table from migrations/001_receiver_control.sql.
+-- ---------------------------------------------------------------------------
+CREATE TABLE receiver_control (
+    device_id          text PRIMARY KEY REFERENCES devices (device_id),
+    desired            text NOT NULL DEFAULT 'disconnected'
+                       CHECK (desired IN ('connected', 'disconnected')),
+    requested_at       timestamptz,                -- when desired last changed
+    receiver_online_at timestamptz,                -- last heartbeat
+    receiver_state     text CHECK (receiver_state IN ('standby', 'searching', 'connected', 'offline')),
+    receiver_host      text                        -- computer name of the receiver
+);
+
+
+-- ---------------------------------------------------------------------------
 -- Views (lint_history, lint_status) live in views.sql so they can be changed and
 -- re-applied without deleting data.
 -- ---------------------------------------------------------------------------

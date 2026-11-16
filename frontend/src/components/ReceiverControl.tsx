@@ -2,51 +2,35 @@
  * ReceiverControl.tsx - the "Connect to sensor" / "Disconnect" card on the Live page.
  *
  * What it does:
- *   Connect starts the Python Bluetooth receiver on this computer (POST /api/receiver);
- *   it then searches for the board and connects by itself. Disconnect stops it cleanly.
- *   The card shows what's happening: searching, connected, stopped, or an error, plus the
- *   receiver's recent log under "Receiver log".
- *   If a receiver started in a terminal is already connected, the button is disabled:
- *   the board accepts only one connection, so stop that one first (Ctrl+C).
- *   On Vercel (receiver control off) the card shows connection status only, no button.
+ *   Connect / Disconnect ask the standby receiver on the PC (through the database) to
+ *   connect to or leave the board. It works the same locally and on Vercel; the receiver
+ *   reacts within ~3 s. The card shows:
+ *     - PC receiver offline           (no heartbeat): Connect still allowed - it
+ *                                      connects as soon as the receiver comes online
+ *     - Ready on <PC>                  online, not asked to connect
+ *     - Searching for the sensor…      asked to connect, board not found yet
+ *     - Connected to the sensor        data is flowing
+ *   On a local dashboard, Connect also starts the standby receiver if none is online,
+ *   and its log appears under "Receiver log".
  *
  * Talks to:
  *   - GET/POST /api/receiver (src/app/api/receiver/route.ts), polled every 2 s.
- *   - Receives the board's DeviceStatus from LiveView.tsx to tell "searching" from "connected".
+ *   - Receives the board's DeviceStatus from LiveView.tsx (to spot a terminal receiver).
  */
 "use client";
 
 import { useState } from "react";
 
-import { linkState } from "@/lib/status";
+import { agoText, linkState, secondsSince } from "@/lib/status";
 import type { DeviceStatus, ReceiverStatus } from "@/lib/types";
 import { refreshAll, usePolling } from "@/lib/usePolling";
 
 export default function ReceiverControl({ device }: { device: DeviceStatus | null }) {
   const { data: rx, refresh } = usePolling<ReceiverStatus>("/api/receiver", 2000);
-  const [busy, setBusy] = useState<"start" | "stop" | null>(null);
+  const [busy, setBusy] = useState<"connect" | "disconnect" | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const boardLinked = device ? linkState(device).kind !== "disconnected" : false;
-  const runningHere = rx?.running ?? false;
-  const runningElsewhere = !runningHere && boardLinked;
-  const crashed = !runningHere && rx?.exitCode != null && rx.exitCode !== 0;
-
-  // On Vercel (or RECEIVER_CONTROL=off) this server can't run the receiver: status only.
-  if (rx && !rx.controlEnabled) {
-    return (
-      <div className="rounded-lg border border-border bg-card p-4">
-        <p className="text-xs font-medium uppercase tracking-wide text-muted">Bluetooth sensor</p>
-        <p className="font-semibold">{boardLinked ? "Connected to the sensor" : "Not connected"}</p>
-        <p className="text-sm text-muted">
-          The receiver runs on the computer next to the dryer
-          {boardLinked ? "." : ". Check that it's on and the receiver is running there."}
-        </p>
-      </div>
-    );
-  }
-
-  async function act(action: "start" | "stop") {
+  async function act(action: "connect" | "disconnect") {
     setBusy(action);
     setError(null);
     try {
@@ -66,53 +50,78 @@ export default function ReceiverControl({ device }: { device: DeviceStatus | nul
     }
   }
 
-  let headline: string;
-  let detail: string;
-  if (busy === "start") [headline, detail] = ["Starting…", "Launching the Bluetooth receiver."];
-  else if (busy === "stop") [headline, detail] = ["Disconnecting…", "Saving buffered data and closing the link."];
-  else if (runningHere && boardLinked) [headline, detail] = ["Connected to the sensor", "Data is being recorded."];
-  else if (runningHere) [headline, detail] = ["Searching for the sensor…", "Is the board powered and nearby? It retries by itself."];
-  else if (runningElsewhere)
-    [headline, detail] = [
-      "Connected by another receiver",
-      "A receiver started in a terminal is connected. Stop it there (Ctrl+C) to control it here.",
-    ];
-  else if (crashed) [headline, detail] = ["Receiver stopped with an error", "See the receiver log below."];
-  else [headline, detail] = ["Not connected", "Connect to start recording from the sensor."];
+  const boardLinked = device ? linkState(device).kind !== "disconnected" : false;
+  const wantsConnected = rx?.desired === "connected";
+  const launcher = rx?.launcher ?? null;
+  const crashed = launcher != null && !launcher.running && launcher.exitCode != null && launcher.exitCode !== 0;
+  const where = rx?.host ? ` on ${rx.host}` : "";
 
-  const canConnect = !runningHere && !runningElsewhere && busy === null;
-  const canDisconnect = runningHere && busy === null;
-  const log = rx?.log ?? [];
+  let headline = "Checking…";
+  let detail = "";
+  if (rx) {
+    if (!rx.online && boardLinked) {
+      headline = "Connected by a receiver started in a terminal";
+      detail = "Stop it there (Ctrl+C) to use these buttons, or keep using it.";
+    } else if (!rx.online) {
+      headline = crashed ? "Receiver stopped with an error" : "PC receiver offline";
+      detail = wantsConnected
+        ? "It will connect as soon as the receiver on the PC is running."
+        : rx.canLaunch
+          ? "Press Connect to start the receiver on this computer."
+          : `Start it on the PC: uv run python -m dryer_backend.remote${
+              rx.lastHeartbeat ? ` (last seen ${agoText(secondsSince(rx.lastHeartbeat, new Date().toISOString()))})` : ""
+            }`;
+    } else if (rx.state === "connected") {
+      headline = "Connected to the sensor";
+      detail = `Data is being recorded${where}.`;
+    } else if (wantsConnected) {
+      headline = "Searching for the sensor…";
+      detail = `Receiver${where} is looking for the board. Is it powered and nearby?`;
+    } else {
+      headline = "Ready";
+      detail = `Receiver${where} is online. Press Connect to link to the sensor.`;
+    }
+  }
+  if (busy === "connect") [headline, detail] = ["Connecting…", "Sending the request to the receiver."];
+  if (busy === "disconnect") [headline, detail] = ["Disconnecting…", "Asking the receiver to drop the link."];
+
+  const showDisconnect = wantsConnected;
+  const disabled = busy !== null || !rx || (!rx.online && boardLinked);
+  const log = launcher?.log ?? [];
 
   return (
     <div className="rounded-lg border border-border bg-card p-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
+        <div className="min-w-0">
           <p className="text-xs font-medium uppercase tracking-wide text-muted">Bluetooth sensor</p>
           <p className={`font-semibold ${crashed ? "text-bad" : ""}`}>{headline}</p>
-          <p className="text-sm text-muted">{detail}</p>
+          <p className="break-words text-sm text-muted">{detail}</p>
         </div>
-        {runningHere || busy === "stop" ? (
+        {showDisconnect ? (
           <button
             type="button"
-            onClick={() => act("stop")}
-            disabled={!canDisconnect}
+            onClick={() => act("disconnect")}
+            disabled={disabled}
             className="w-full rounded-md border border-border px-4 py-2.5 font-medium disabled:opacity-60 sm:w-auto"
           >
-            {busy === "stop" ? "Disconnecting…" : "Disconnect"}
+            {busy === "disconnect" ? "Disconnecting…" : "Disconnect"}
           </button>
         ) : (
           <button
             type="button"
-            onClick={() => act("start")}
-            disabled={!canConnect}
+            onClick={() => act("connect")}
+            disabled={disabled}
             className="w-full rounded-md bg-accent px-4 py-2.5 font-medium text-white disabled:opacity-60 sm:w-auto"
           >
-            {busy === "start" ? "Connecting…" : "Connect to sensor"}
+            {busy === "connect" ? "Connecting…" : "Connect to sensor"}
           </button>
         )}
       </div>
-      {error && <p role="alert" className="mt-3 break-words text-sm text-bad">{error}</p>}
+      {error && (
+        <p role="alert" className="mt-3 break-words text-sm text-bad">
+          {error}
+        </p>
+      )}
       {log.length > 0 && (
         <details className="mt-3 text-sm" open={crashed}>
           <summary className="cursor-pointer text-muted">Receiver log ({log.length} lines)</summary>

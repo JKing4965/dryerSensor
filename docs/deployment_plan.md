@@ -141,11 +141,51 @@ each verified checkpoint is committed to `main`.
 > - The Connect card shows the status line, not the button. `POST /api/receiver` on the Vercel URL → 403.
 > - Cycles and Lint pages load. **Filter cleaned** works, and the banner updates.
 > - Vercel's function logs show no database connection errors.
+>
+> **Found during D3:**
+> - The Node database driver treats `sslmode=require` as full certificate verification, and Timescale's chain isn't trusted on Vercel. Fix: append `&uselibpqcompat=true` to `DATABASE_URL`, which keeps the connection encrypted, the same as the Python receiver.
+> - With the button hidden on Vercel there was no way to connect from the website, so step D3b was added.
+
+### D3b. Remote Connect button (works from Vercel)
+The dashboard can't start programs on the PC. Instead, the receiver runs on the PC in a
+**standby mode** and takes orders through the database:
+
+```
+[Connect button, any device] ──desired = connected──▶ [receiver_control table] ◀── heartbeat every 3 s ──┐
+                                                                    │ polled every 3 s                   │
+                                                                    ▼                                    │
+                                                    [standby receiver on the PC] ──BLE──▶ board ─────────┘
+```
+
+- **Database:** a new table, `receiver_control`, one row per device:
+  - `desired`: `connected` or `disconnected`, written by the button
+  - the receiver's heartbeat: `receiver_online_at`, `receiver_state` (`standby` / `searching` / `connected` / `offline`), and `receiver_host`, the computer's name
+
+  It's in `schema.sql` and `seed.sql` for new databases, and in an **idempotent migration**, `backend/db/migrations/001_receiver_control.sql`, for existing ones. That migration is loaded into Timescale Cloud with the same `psql` command as D1, **with no data reset**.
+- **Receiver:** a new entry point, `uv run python -m dryer_backend.remote`, which runs until stopped:
+  - every 3 s it reads `desired` and writes its heartbeat, using the database's clock
+  - `connected` → runs the normal Bluetooth receiver; `disconnected` → stops it cleanly, then waits in standby
+  - if the receiver crashes, it restarts on the next check
+  - the requested state is remembered in the database, so after a PC reboot it reconnects by itself if it was connected before
+- **Dashboard** (local and Vercel are now the same):
+  - **Connect** / **Disconnect** write `desired` through `/api/receiver`
+  - the card shows "PC receiver offline" (no heartbeat for 15 s), "Ready on <PC name>", "Searching for the sensor…" or "Connected to the sensor"
+  - pressing Connect while the PC is offline is allowed: it connects as soon as the receiver comes online
+- **Local convenience:** where the dashboard may run programs (not on Vercel), Connect also **starts the standby receiver** if none is running, keeping the one-click flow from before. The old version, which started `ingest` directly, is replaced.
+- **Tests:** standby mode against the test database, driven by the simulator: connect → data arrives and the state becomes `connected`; disconnect → `standby`; stop → `offline`.
+
+> **🛑 CHECKPOINT D3b: connect from anywhere**
+> - Load the migration into Timescale Cloud. `SELECT * FROM receiver_control` shows `dryer-1 | disconnected`.
+> - On the PC, start `uv run python -m dryer_backend.remote`. Within about 5 s the Vercel card shows **"Ready on <your PC name>"**.
+> - On your **phone** (Vercel URL), press **Connect**: "Searching…", then "Connected to the sensor", and the badge shows "Connected · dryer idle".
+> - Press **Disconnect**: the board disconnects (its blue LED goes off) and the card shows "Ready".
+> - Stop the standby receiver with Ctrl+C: within about 15 s the card shows "PC receiver offline".
+> - Local `npm run dev` without a standby receiver running: Connect starts one and connects.
 
 ### D4. Receiver on the PC, for everyday use
 - `.env` `DATABASE_URL` → cloud (done in D2).
-- **Two ways to run it,** documented in the README:
-  1. **Manual:** `uv run python -m dryer_backend.ingest --source ble` in a terminal, or the local dashboard's Connect button.
+- **Two ways to run the standby receiver** (D3b), documented in the README:
+  1. **Manual:** `uv run python -m dryer_backend.remote` in a terminal, or the local dashboard's Connect button.
   2. **Automatic at login:** a new `scripts/start-receiver.ps1`, registered with **Windows Task Scheduler** ("At log on", restart on failure). I'll give the exact Task Scheduler steps or a one-line `Register-ScheduledTask` command for you to run.
 - **Power:** set Windows to not sleep while plugged in, or accept that cycles recorded during sleep wait in the board's flash (up to 4) and upload when the PC wakes.
 

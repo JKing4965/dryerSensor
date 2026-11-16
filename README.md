@@ -160,19 +160,32 @@ cd frontend
 npm run dev                # open http://localhost:3000
 ```
 
-**Connect to the board:** on the Live tab, press **Connect to sensor**. This starts the
-Bluetooth receiver on this computer. It searches for the board and reconnects by itself,
-and its log is under "Receiver log". **Disconnect** stops it cleanly. The receiver also stops
-when the dashboard (`npm run dev`) stops.
+**Connect to the board:** on the Live tab, press **Connect to sensor**. The button works
+through the database, so it behaves the same here and on the deployed (Vercel) dashboard:
+- A **standby receiver** runs on the computer next to the dryer, checks every 3 s what the
+  button asked for, and connects to or disconnects from the board. It writes a heartbeat,
+  so the card shows **PC receiver offline / Ready / Searching… / Connected**.
+- On a local dashboard, Connect also **starts the standby receiver** if none is running
+  (its log is under "Receiver log"). It stops when the dashboard (`npm run dev`) stops.
+- **Disconnect** drops the Bluetooth link; the standby receiver keeps waiting.
+- The choice is remembered: after a reboot, the receiver reconnects if it was connected.
 
-*Or* run the receiver in its own terminal (stop with Ctrl+C), which is handy for watching
-its log or for the simulator in section 3:
+Run the standby receiver yourself (handy for watching its log, or when the dashboard runs
+on Vercel):
 ```
 cd backend
-uv run python -m dryer_backend.ingest --source ble
+uv run python -m dryer_backend.remote
 ```
-Use one or the other: the board accepts only one connection at a time, so the button is
-disabled while a terminal receiver is connected.
+The one-off receiver, `uv run python -m dryer_backend.ingest --source ble`, still works for
+testing (and `--source sim` in section 3). Run only one at a time: the board accepts a
+single connection, so the card shows "Connected by a receiver started in a terminal" and
+disables the buttons while a one-off receiver holds it.
+
+**Databases created before the remote button** (anything set up before step D3b in
+`docs/deployment_plan.md`) need its table once. This keeps all data:
+```
+docker compose exec -T db psql -U dryer -d dryer -v ON_ERROR_STOP=1 -f /docker-entrypoint-initdb.d/migrations/001_receiver_control.sql
+```
 
 The dashboard has three tabs:
 - **Live:** Connect / Disconnect, connection badge, sensor errors, current cycle charts. Refreshes every 2 s.
@@ -181,11 +194,12 @@ The dashboard has three tabs:
 
 A banner appears on every page when the screen needs cleaning or the exhaust duct looks blocked.
 
-Stop everything: Disconnect (or Ctrl+C in the receiver terminal), Ctrl+C in the dashboard
-terminal, then `docker compose down` (data is kept).
+Stop everything: Ctrl+C in the dashboard terminal (and in the receiver terminal, if you
+started one), then `docker compose down` (data is kept).
 
-The dashboard is meant for your own computer or home network. Its Connect button starts a
-fixed program on this computer, so don't expose `npm run dev` to the internet.
+The local dashboard (`npm run dev`) is meant for your own computer or home network: its
+Connect button can start a program on this computer, so don't expose it to the internet.
+The deployed Vercel dashboard can't start programs; it only sends the request.
 
 ## 3. Without hardware: simulator and replay
 
@@ -269,7 +283,10 @@ docker compose exec db psql -U dryer -d dryer -c "SELECT cycle_no, dp_steady, sc
 | Dashboard: "Can't load live data … DATABASE_URL is not set" | `frontend/.env.local` is missing. Copy it from `.env.local.example`, then restart `npm run dev`. |
 | Dashboard: `relation "lint_status" does not exist` or a missing column | The database was created from an older schema. Run `docker compose down -v` then `up -d` (deletes data). |
 | Connect button: `Python not found … Run "uv sync" in backend/` | The backend environment doesn't exist yet. Run `uv sync` in `backend/`, or set `RECEIVER_PYTHON` in `frontend/.env.local`. |
-| Connect button disabled, "Connected by another receiver" | A receiver started in a terminal holds the board. Stop it with Ctrl+C there. |
+| Connect button disabled, "Connected by a receiver started in a terminal" | A one-off `ingest` receiver holds the board. Stop it with Ctrl+C there. |
+| Card says "PC receiver offline" | No standby receiver is running on the computer by the dryer. Start `uv run python -m dryer_backend.remote` there, or press Connect on a local dashboard. |
+| Dashboard error: "The receiver_control table is missing" | The database predates the remote button. Load `backend/db/migrations/001_receiver_control.sql` (command in section 2). |
+| Receiver log: "Bluetooth radio is not powered on" | Turn on Bluetooth on that computer. |
 | `board 'XIAO-BLE' not found` | Board is off, out of range, or another app is connected to it. Check with `uv run tools/ble_reader.py --scan`. |
 | Receiver logs `skipped bad line` with missing characters, e.g. `H,,0499,600,…` | The sketch writes one byte per Bluetooth packet and the queue drops about half. Collect the line and send it with one `bleuart.write(buf, len)` call. |
 | Dashboard badge says **Disconnected** while data looks recent | The receiver isn't running, or hasn't written status for 65 s. Restart it. |

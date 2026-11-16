@@ -42,7 +42,7 @@ import threading
 from collections.abc import Awaitable, Callable, Coroutine
 from dataclasses import asdict, dataclass
 from datetime import datetime
-from typing import Any
+from typing import Any, TypeVar
 
 import psycopg
 
@@ -68,6 +68,7 @@ from dryer_backend.sources import LinkEvent, ReplaySource, Source
 from dryer_backend.timesync import TimeSync
 
 log = logging.getLogger("dryer_backend.ingest")
+T = TypeVar("T")
 
 MAX_BATCH = 200
 
@@ -266,7 +267,7 @@ def _make_source(args: argparse.Namespace, settings: Settings) -> Source:
     return BleSource(device_name=args.name or settings.ble_device_name, address=args.address)
 
 
-async def _stoppable_by_stdin(coro: Coroutine[Any, Any, Stats]) -> Stats:
+async def stoppable_by_stdin(coro: Coroutine[Any, Any, T]) -> T:
     """Run the receiver until it ends, or until stdin says 'quit' / closes.
 
     Used when the dashboard starts the receiver as a child process: the dashboard writes
@@ -323,7 +324,7 @@ def main(argv: list[str] | None = None) -> None:
              "send 'quit' on stdin to stop" if args.control_stdin else "Ctrl+C to stop")  # fmt: skip
     coro = run_ingest(source, settings.database_url, settings.device_id, settings.flush_interval_s)
     try:
-        stats = run_async(_stoppable_by_stdin(coro) if args.control_stdin else coro)
+        stats = run_async(stoppable_by_stdin(coro) if args.control_stdin else coro)
     except (KeyboardInterrupt, asyncio.CancelledError):
         log.info("stopped")
         return
