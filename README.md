@@ -24,6 +24,101 @@ dashboard shows live data, cycle history, and whether the lint screen needs clea
 | `docker-compose.yml` | YAML | Runs the TimescaleDB database. |
 | `.env.example` | text | Backend/database settings template. Copy to `.env`. |
 
+## Quick start (copy-paste commands)
+
+The commands work in **PowerShell, macOS and Linux**, except where noted. Sections 1–7 below
+explain each step in more detail.
+
+### 1. Install the tools (once per computer)
+
+uv on Windows (PowerShell):
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+uv on macOS / Linux:
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+Also install [Docker Desktop](https://www.docker.com/products/docker-desktop/) and
+[Node.js 20.9+](https://nodejs.org/) (the team uses 26). Start Docker Desktop, then **open a
+new terminal** so `uv` is found.
+
+### 2. Get the code and install everything (once)
+
+```bash
+git clone https://github.com/JKing4965/dryerSensor.git
+cd dryerSensor
+cp .env.example .env
+cp frontend/.env.local.example frontend/.env.local
+cd backend
+uv sync
+cd ../frontend
+npm install
+cd ..
+```
+`uv sync` installs Python and the Python libraries; `npm install` installs the dashboard's
+Node packages. Neither installs the other's, so both are needed.
+
+### 3. Run it (every time)
+
+From the `dryerSensor` folder, start the database and wait until it says **healthy**:
+```bash
+docker compose up -d
+docker compose ps
+```
+Start the dashboard:
+```bash
+cd frontend
+npm run dev
+```
+Open **http://localhost:3000** and press **Connect to sensor** on the Live tab. The board must be
+powered and nearby.
+
+When done, press **Disconnect** and Ctrl+C the dashboard. Optionally stop the database too
+(data is kept):
+```bash
+docker compose down
+```
+
+### 4. Without the board (optional)
+
+In a second terminal, from the `dryerSensor` folder:
+```bash
+cd backend
+uv run python -m dryer_backend.ingest --source sim --scenario normal --cycles 7
+uv run pytest
+```
+The first command fills the dashboard with simulated cycles; the second runs the backend tests.
+
+### 5. After pulling new changes
+
+From the `dryerSensor` folder:
+```bash
+git pull
+cd backend
+uv sync
+cd ../frontend
+npm install
+cd ..
+```
+If the pull changed `backend/db/schema.sql` or `seed.sql`, also reset the database. **This
+deletes stored data.** Anyone whose database was created before the November 2026 schema
+changes needs to do this once:
+```bash
+docker compose down -v
+docker compose up -d
+```
+
+### 6. Uploading firmware (only whoever flashes the board)
+
+In the Arduino IDE:
+- **Board:** **Seeed XIAO nRF52840 Sense** from "Seeed nRF52 Boards" (not the "No Updates" version).
+- **Libraries** (Library Manager): Adafruit BMP5xx, Adafruit Unified Sensor, Adafruit BusIO,
+  Seeed Arduino LSM6DS3, Adafruit SPIFlash, SdFat - Adafruit Fork.
+- Open `arduino_code/main.ino` and upload.
+
+If something fails, see **7. Troubleshooting** below.
+
 ## 1. One-time setup (each teammate)
 
 Install these three tools. You do **not** need to install Python or any library by hand.
