@@ -100,10 +100,21 @@ Rules:
 |---|---|---|
 | **T** time | `T,<unix_ms>` | Right after each H line. Real time in milliseconds since 1970 (UTC). Optional for the board to use |
 | **A** acknowledge | `A,<cycle_no>,<seq>,<done>` | After the receiver has stored data. `done` = `1` once the E line is stored too |
+| **M** test cycle | `M,1[,<seconds>]` / `M,0` | When someone presses **Start / End test cycle** on the dashboard |
 
 - `A,<cycle_no>,<seq>,0` means "everything up to and including `seq` of this cycle is stored".
 - `A,<cycle_no>,<seq>,1` means "the whole cycle is stored". **Only then may the board erase that
   cycle from flash.**
+- **Test cycles (`M`)** let a cycle be started and ended without vibration, for testing on a
+  bench or a lint-simulation rig:
+  - `M,1` starts a cycle **now**, using the latest baseline. If a vibration-started cycle is already
+    running, it becomes a test cycle instead.
+  - `M,1,<seconds>` does the same and ends the cycle by itself after that many seconds
+    (1–86400). Without `<seconds>` it runs until `M,0`.
+  - `M,0` ends the current cycle now (test or vibration-started) and sends its `E` line.
+  - **During a test cycle the vibration level is ignored:** it neither ends the cycle nor starts another.
+  - Everything else is a normal cycle: the same `C`/`S`/`E` lines, flash storage and lint numbers.
+  - The board sends an `H` line right away when the cycle starts or ends, so the dashboard updates.
 
 ## 5. Flash backlog rules (firmware)
 
@@ -176,3 +187,4 @@ receiver, and paste these lines into the Arduino Serial Monitor (line ending "Ne
       Byte-by-byte writes overflow the Bluetooth send queue and roughly every other
       character is lost (seen with `BLEtest.ino` during checkpoint 5).
 - [ ] Don't block on `while (!Serial)`, because the board must run without USB
+- [ ] Handle `M,1[,<seconds>]` / `M,0` test-cycle commands (section 4)

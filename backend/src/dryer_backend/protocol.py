@@ -7,7 +7,8 @@ What it does:
     - parse_line() checks one line against docs/protocol.md and returns a dataclass
       (Hello, Baseline, CycleStart, Sample, CycleEnd or Comment), or raises ParseError.
       Hello carries the two sensor error codes (SensorError: 0 ok, 1 missing, 2 broken).
-    - encode_time() / encode_ack() build the lines the computer sends back to the board.
+    - encode_time() / encode_ack() / encode_test_cycle() build the lines the computer sends
+      to the board (T, A, and M for dashboard-triggered test cycles).
 
 Talks to:
     - docs/protocol.md is the specification this file implements. Change both together.
@@ -333,3 +334,12 @@ def encode_time(unix_ms: int) -> bytes:
 def encode_ack(cycle_no: int, seq: int, done: bool) -> bytes:
     """A line: everything up to seq of cycle_no is stored; done=True -> board may erase it."""
     return f"A,{cycle_no},{seq},{1 if done else 0}\n".encode("ascii")
+
+
+def encode_test_cycle(start: bool, seconds: int = 0) -> bytes:
+    """M line: start a test cycle now (auto-end after `seconds` if > 0), or end the current cycle."""
+    if not start:
+        return b"M,0\n"
+    if seconds > 0:
+        return f"M,1,{int(seconds)}\n".encode("ascii")
+    return b"M,1\n"

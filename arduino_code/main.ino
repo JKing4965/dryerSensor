@@ -13,6 +13,9 @@
  *     - Every cycle is saved in the board's 2 MB flash chip, so a cycle recorded while
  *       no computer is connected is uploaded later, and survives a reset.
  *     - "Filter cleaned" and the reminder to clean lint live in the dashboard, not here.
+ *     - TEST CYCLES: the dashboard's "Start / End test cycle" buttons send M,1[,seconds] / M,0,
+ *       which start and end a cycle without vibration (bench or lint-simulation testing).
+ *       The vibration level is ignored while one runs. See docs/protocol.md section 4.
  *
  * TALKS TO
  *   - The Python receiver (backend/, `--source ble`) over the Nordic UART Service.
@@ -777,6 +780,15 @@ static void linkProcessLine(char *line) {
     if (*p != ',') return;
     bool done = strtoul(p + 1, nullptr, 10) == 1;
     storageAck(cycle, seq, done);
+  } else if (line[0] == 'M' && line[1] == ',') {  // test cycle: M,1[,<seconds>] or M,0
+    char *p = line + 2;
+    uint32_t on = strtoul(p, &p, 10);
+    uint32_t seconds = 0;
+    if (*p == ',') {
+      seconds = strtoul(p + 1, nullptr, 10);
+      if (seconds > 86400) seconds = 0;  // out of range: run until M,0
+    }
+    testCycleCommand(on == 1, seconds);
   }
 }
 
@@ -822,9 +834,67 @@ static void setState(CycleState s) {
   debugComment(msg);
 }
 
+// Test cycles (protocol.md section 4, "M" lines): started/ended from the dashboard, not by
+// vibration. While one runs, the vibration level is ignored.
+static bool testCycle = false;
+static bool testHasEnd = false;
+static uint32_t testEndMs = 0;
+
+static void beginCycle(uint32_t startAt) {
+  uint32_t cycleNo = nextCycleNo++;
+  cycleNoSave();
+  storageStartCycle(cycleNo, bootId, startAt, baselineValid ? &baseline : nullptr);
+  helloDue = true;  // tell the computer straight away
+}
+
+static void endCycle(uint32_t now) {
+  storageEndCycle(now);
+  setState(IDLE);
+  testCycle = false;
+  lastBaselineMs = now;  // next baseline after things have settled
+  helloDue = true;
+}
+
+// M,1[,seconds] -> start (or take over) a cycle now; M,0 -> end the current cycle now.
+static void testCycleCommand(bool start, uint32_t seconds) {
+  uint32_t now = millis();
+  if (start) {
+    if (state == IDLE) {
+      beginCycle(now);
+    } else if (state == STARTING) {  // vibration had just begun: keep those samples
+      beginCycle(startMs);
+      for (uint8_t k = 0; k < pendingN; k++) storageAddSample(pending[k]);
+    }
+    pendingN = 0;
+    quietSeconds = 0;
+    testCycle = true;
+    testHasEnd = seconds > 0;
+    testEndMs = now + seconds * 1000UL;
+    setState(RUNNING);
+    char msg[48];
+    if (testHasEnd) snprintf(msg, sizeof msg, "test cycle started (%lu s)", (unsigned long)seconds);
+    else snprintf(msg, sizeof msg, "test cycle started (until M,0)");
+    debugComment(msg);
+  } else {
+    if (state == RUNNING || state == STOPPING) endCycle(now);
+    else if (state == STARTING) setState(IDLE);
+    testCycle = false;
+    debugComment("test cycle ended");
+  }
+  helloDue = true;
+}
+
 // Called once per second with this second's vibration and (if valid) sensor reading.
 static void cycleTick(uint32_t now, float vib, bool haveReading, const Reading &r) {
   bool shaking = vib >= VIB_THRESHOLD_G;
+  if (testCycle) {  // test cycle: record, ignore vibration, end on M,0 or the timer
+    if (haveReading) storageAddSample(r);
+    if (testHasEnd && (int32_t)(now - testEndMs) >= 0) {
+      debugComment("test cycle finished (timer)");
+      endCycle(now);
+    }
+    return;
+  }
   switch (state) {
     case IDLE:
       if (shaking) {
@@ -855,9 +925,7 @@ static void cycleTick(uint32_t now, float vib, bool haveReading, const Reading &
         break;
       }
       if (vibSeconds >= START_CONFIRM_S) {
-        uint32_t cycleNo = nextCycleNo++;
-        cycleNoSave();
-        storageStartCycle(cycleNo, bootId, startMs, baselineValid ? &baseline : nullptr);
+        beginCycle(startMs);
         for (uint8_t k = 0; k < pendingN; k++) storageAddSample(pending[k]);
         pendingN = 0;
         quietSeconds = 0;
@@ -873,11 +941,7 @@ static void cycleTick(uint32_t now, float vib, bool haveReading, const Reading &
         setState(RUNNING);
       } else {
         setState(STOPPING);
-        if (++quietSeconds >= STOP_CONFIRM_S) {
-          storageEndCycle(now);
-          setState(IDLE);
-          lastBaselineMs = now;  // next baseline after the drum has settled
-        }
+        if (++quietSeconds >= STOP_CONFIRM_S) endCycle(now);
       }
       break;
   }
@@ -974,13 +1038,13 @@ static void debugStatus(uint32_t now, float vib, bool have, const Reading &r) {
   unsigned long milliG = (unsigned long)lroundf(vib * 1000.0f);  // integer: avoids printf("%f")
   if (have) {
     Serial.printf("t=%lus %-8s vib=%lumg  in %s Pa %s C  out %s Pa %s C  dP %s Pa  err %u/%u  link=%d backlog=%lu\n",
-                  (unsigned long)(now / 1000), STATE_NAME[state], milliG, fmt2(a, sizeof a, r.pIn),
+                  (unsigned long)(now / 1000), (testCycle ? "TEST" : STATE_NAME[state]), milliG, fmt2(a, sizeof a, r.pIn),
                   fmt2(b, sizeof b, r.tIn), fmt2(c, sizeof c, r.pOut), fmt2(d, sizeof d, r.tOut),
                   fmt2(dp, sizeof dp, r.pIn - r.pOut), sensorIn.code, sensorOut.code, linkReady,
                   (unsigned long)storageBacklog());
   } else {
     Serial.printf("t=%lus %-8s vib=%lumg  (no valid reading)  err %u/%u  link=%d\n", (unsigned long)(now / 1000),
-                  STATE_NAME[state], milliG, sensorIn.code, sensorOut.code, linkReady);
+                  (testCycle ? "TEST" : STATE_NAME[state]), milliG, sensorIn.code, sensorOut.code, linkReady);
   }
 #endif
 }

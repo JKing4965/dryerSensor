@@ -158,7 +158,8 @@ CREATE TABLE lint_settings (
 --   desired              written by the dashboard: 'connected' or 'disconnected'
 --   receiver_*           heartbeat written every ~3 s by `python -m dryer_backend.remote`
 --                        (times use the database clock, so PC clock errors don't matter)
--- Existing databases get this table from migrations/001_receiver_control.sql.
+-- Existing databases get this table from migrations/001_receiver_control.sql and the
+-- test_* columns from migrations/002_test_cycle.sql.
 -- ---------------------------------------------------------------------------
 CREATE TABLE receiver_control (
     device_id          text PRIMARY KEY REFERENCES devices (device_id),
@@ -167,7 +168,16 @@ CREATE TABLE receiver_control (
     requested_at       timestamptz,                -- when desired last changed
     receiver_online_at timestamptz,                -- last heartbeat
     receiver_state     text CHECK (receiver_state IN ('standby', 'searching', 'connected', 'offline')),
-    receiver_host      text                        -- computer name of the receiver
+    receiver_host      text,                       -- computer name of the receiver
+    -- Test cycles (dashboard "Start / End test cycle" -> M line to the board).
+    -- The dashboard bumps test_command_id; the receiver sends the command once and copies
+    -- the id to test_done_id. Commands older than 60 s are dropped as 'expired'.
+    test_command       text CHECK (test_command IN ('start', 'stop')),
+    test_seconds       integer NOT NULL DEFAULT 0, -- 'start': auto-end after this many s (0 = until 'stop')
+    test_command_id    bigint  NOT NULL DEFAULT 0,
+    test_done_id       bigint  NOT NULL DEFAULT 0,
+    test_requested_at  timestamptz,
+    test_result        text CHECK (test_result IN ('sent', 'expired'))
 );
 
 

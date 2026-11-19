@@ -9,6 +9,8 @@ What it does:
          connected, or stops it cleanly when it shouldn't
       3. writes a heartbeat (receiver_online_at, receiver_state, receiver_host), so the
          dashboard can show "PC receiver offline / Ready / Searching / Connected"
+      4. forwards a new "Start / End test cycle" request (test_command_id > test_done_id)
+         to the board as an M line once, or drops it as "expired" if it waited > 60 s
     If the receiver stops with an error it is restarted on the next check. The requested
     state lives in the database, so after a reboot it reconnects if it was connected before.
     On exit it marks itself "offline".
@@ -39,6 +41,7 @@ from psycopg.rows import dict_row
 
 from dryer_backend.config import ConfigError, load_settings, run_async
 from dryer_backend.ingest import run_ingest, stoppable_by_stdin
+from dryer_backend.protocol import encode_test_cycle
 from dryer_backend.sources import Source
 
 log = logging.getLogger("dryer_backend.remote")
@@ -48,10 +51,14 @@ BOARD_FRESH_S = 65  # device_status older than this = the receiver lost the boar
 
 _ENSURE_ROW = "INSERT INTO receiver_control (device_id) VALUES (%s) ON CONFLICT (device_id) DO NOTHING"
 
+TEST_COMMAND_MAX_AGE_S = 60  # older Start/End test-cycle clicks are dropped, not sent late
+
 _READ = f"""
 SELECT rc.desired,
        COALESCE(ds.connected AND ds.updated_at > now() - interval '{BOARD_FRESH_S} seconds', false)
-           AS board_linked
+           AS board_linked,
+       rc.test_command, rc.test_seconds, rc.test_command_id, rc.test_done_id,
+       EXTRACT(EPOCH FROM now() - rc.test_requested_at) AS test_age_s
 FROM receiver_control rc
 LEFT JOIN device_status ds ON ds.device_id = rc.device_id
 WHERE rc.device_id = %s
@@ -62,6 +69,38 @@ UPDATE receiver_control
 SET receiver_online_at = now(), receiver_state = %s, receiver_host = %s
 WHERE device_id = %s
 """
+
+
+_TEST_DONE = "UPDATE receiver_control SET test_done_id = %s, test_result = %s WHERE device_id = %s"
+
+
+async def _handle_test_command(
+    conn: psycopg.AsyncConnection[dict[str, Any]],
+    row: dict[str, Any],
+    device_id: str,
+    source: Source | None,
+    board_linked: bool,
+) -> None:
+    """Send a new Start/End test-cycle request to the board once, or drop it if too old."""
+    command_id = row.get("test_command_id") or 0
+    if command_id <= (row.get("test_done_id") or 0) or not row.get("test_command"):
+        return
+    age = float(row["test_age_s"]) if row.get("test_age_s") is not None else 0.0
+    if age > TEST_COMMAND_MAX_AGE_S:
+        log.warning("test-cycle request dropped: the board wasn't connected within %s s", TEST_COMMAND_MAX_AGE_S)
+        await conn.execute(_TEST_DONE, (command_id, "expired", device_id))
+        return
+    if source is None or not board_linked:
+        return  # wait: the board isn't connected (yet)
+    start = row["test_command"] == "start"
+    line = encode_test_cycle(start, int(row.get("test_seconds") or 0))
+    try:
+        await source.send(line)
+    except Exception as e:  # link dropped: try again next check (until it expires)
+        log.warning("couldn't send the test-cycle request yet: %s", e)
+        return
+    log.info("test cycle %s sent to the board (%s)", "start" if start else "end", line.decode().strip())
+    await conn.execute(_TEST_DONE, (command_id, "sent", device_id))
 
 
 async def _stop_session(task: asyncio.Task | None) -> None:
@@ -83,6 +122,7 @@ async def run_remote(
     """Run until cancelled. make_source() builds a fresh source for each connection."""
     host = host or socket.gethostname()
     session: asyncio.Task | None = None
+    source: Source | None = None  # the current connection's source, for sending M lines
     last_state = None
     conn: psycopg.AsyncConnection[dict[str, Any]] | None = None
     try:
@@ -100,15 +140,18 @@ async def run_remote(
                     if not session.cancelled() and session.exception():
                         log.error("receiver stopped with an error: %s", session.exception())
                     session = None
+                    source = None
                 if desired == "connected" and session is None:
                     log.info("connect requested: starting the Bluetooth receiver")
+                    source = make_source()
                     session = asyncio.create_task(
-                        run_ingest(make_source(), database_url, device_id, flush_interval_s)
+                        run_ingest(source, database_url, device_id, flush_interval_s)
                     )
                 elif desired != "connected" and session is not None:
                     log.info("disconnect requested: stopping the Bluetooth receiver")
                     await _stop_session(session)
                     session = None
+                    source = None
                     board_linked = False
 
                 state = "standby" if session is None else ("connected" if board_linked else "searching")
@@ -116,6 +159,8 @@ async def run_remote(
                     log.info("state: %s", state)
                     last_state = state
                 await conn.execute(_HEARTBEAT, (state, host, device_id))
+                if row:
+                    await _handle_test_command(conn, row, device_id, source, state == "connected")
             except psycopg.Error as e:
                 log.warning("database problem, retrying: %s", e)
                 if conn is not None:

@@ -162,6 +162,20 @@ export interface LauncherStatus {
   log: string[];
 }
 
+/** A "Start / End test cycle" request: sent to the board as an M line by the receiver. */
+export interface TestCycleRequest {
+  command: "start" | "stop" | null;
+  /** For "start": auto-end after this many seconds; 0 = until "End test cycle". */
+  seconds: number;
+  /** Requested but not yet handled by the receiver. */
+  pending: boolean;
+  /** "sent" = delivered to the board; "expired" = board not connected within 60 s. */
+  result: "sent" | "expired" | null;
+  requestedAt: string | null;
+  /** Requested in the last 2 minutes (database clock): worth showing its result. */
+  recent: boolean;
+}
+
 /** GET/POST /api/receiver: the remote Connect button (receiver_control table). */
 export interface ReceiverStatus {
   /** What the Connect / Disconnect button last asked for. */
@@ -172,6 +186,8 @@ export interface ReceiverStatus {
   /** Computer name of the standby receiver. */
   host: string | null;
   lastHeartbeat: string | null;
+  /** The last Start / End test-cycle request (receiver_control.test_*). */
+  test: TestCycleRequest;
   /** This server can start a standby receiver itself (local dashboard, not Vercel). */
   canLaunch: boolean;
   /** Only when canLaunch: the receiver this server started, if any. */

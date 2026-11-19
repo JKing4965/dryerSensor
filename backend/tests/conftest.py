@@ -75,7 +75,9 @@ def db_url(_test_database: str) -> str:
         )
         conn.execute(
             "UPDATE receiver_control SET desired = 'disconnected', requested_at = NULL, "
-            "receiver_online_at = NULL, receiver_state = NULL, receiver_host = NULL"
+            "receiver_online_at = NULL, receiver_state = NULL, receiver_host = NULL, "
+            "test_command = NULL, test_seconds = 0, test_command_id = 0, test_done_id = 0, "
+            "test_requested_at = NULL, test_result = NULL"
         )
     return _test_database
 

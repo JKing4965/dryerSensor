@@ -29,6 +29,7 @@ from dryer_backend.protocol import (
     Sample,
     SensorError,
     encode_ack,
+    encode_test_cycle,
     encode_time,
     parse_line,
 )
@@ -225,3 +226,10 @@ def test_encode_time():
 def test_encode_ack():
     assert encode_ack(7, 3, done=False) == b"A,7,3,0\n"
     assert encode_ack(7, 3, done=True) == b"A,7,3,1\n"
+
+
+def test_encode_test_cycle():
+    assert encode_test_cycle(True, 600) == b"M,1,600\n"
+    assert encode_test_cycle(True) == b"M,1\n"  # until M,0
+    assert encode_test_cycle(True, 0) == b"M,1\n"
+    assert encode_test_cycle(False) == b"M,0\n"

@@ -12,6 +12,8 @@
  *     - Connected to the sensor        data is flowing
  *   On a local dashboard, Connect also starts the standby receiver if none is online,
  *   and its log appears under "Receiver log".
+ *   While connected, the card also holds the "Test cycle" controls (TestCycleControl.tsx),
+ *   for starting a cycle without vibration.
  *
  * Talks to:
  *   - GET/POST /api/receiver (src/app/api/receiver/route.ts), polled every 2 s.
@@ -21,6 +23,7 @@
 
 import { useState } from "react";
 
+import TestCycleControl from "@/components/TestCycleControl";
 import { agoText, linkState, secondsSince } from "@/lib/status";
 import type { DeviceStatus, ReceiverStatus } from "@/lib/types";
 import { refreshAll, usePolling } from "@/lib/usePolling";
@@ -121,6 +124,16 @@ export default function ReceiverControl({ device }: { device: DeviceStatus | nul
         <p role="alert" className="mt-3 break-words text-sm text-bad">
           {error}
         </p>
+      )}
+      {rx && rx.online && wantsConnected && (
+        <TestCycleControl
+          rx={rx}
+          device={device}
+          onChange={() => {
+            refresh();
+            refreshAll();
+          }}
+        />
       )}
       {log.length > 0 && (
         <details className="mt-3 text-sm" open={crashed}>

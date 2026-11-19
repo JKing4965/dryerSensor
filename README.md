@@ -200,11 +200,16 @@ testing (and `--source sim` in section 3). Run only one at a time: the board acc
 single connection, so the card shows "Connected by a receiver started in a terminal" and
 disables the buttons while a one-off receiver holds it.
 
-**Databases created before the remote button** (anything set up before step D3b in
-`docs/deployment_plan.md`) need its table once. This keeps all data:
+**Databases created before these features** need the migrations in `backend/db/migrations/`
+loaded once, in order. Each one keeps all data and is safe to run twice:
 ```
 docker compose exec -T db psql -U dryer -d dryer -v ON_ERROR_STOP=1 -f /docker-entrypoint-initdb.d/migrations/001_receiver_control.sql
+docker compose exec -T db psql -U dryer -d dryer -v ON_ERROR_STOP=1 -f /docker-entrypoint-initdb.d/migrations/002_test_cycle.sql
 ```
+- `001`: the remote Connect button
+- `002`: test cycles
+
+For Timescale Cloud, use `"$env:CLOUD_URL"` in place of `-U dryer -d dryer` (section 8).
 
 The dashboard has three tabs:
 - **Live:** Connect / Disconnect, connection badge, sensor errors, current cycle charts. Refreshes every 2 s.
@@ -261,6 +266,27 @@ between scenarios for clean results.
 
   `BLEtest.ino` must send whole lines with one `bleuart.write(buf, len)` call. See troubleshooting.
 
+### Test cycles (no vibration needed)
+
+For bench tests, or a lint-simulation rig that isn't a real dryer, start cycles from the
+dashboard instead of shaking the board:
+1. **Live** tab → **Connect to sensor** → wait for "Connected to the sensor".
+2. Under **Test cycle**, pick a length (**5 / 10 / 20 / 45 min**, or **Until I end it**) and
+   press **Start test cycle**. Within about 3 s the board starts a cycle (green LED on;
+   the Serial Monitor shows `TEST`).
+3. It ends by itself after the chosen time, or press **End cycle now**. That button also
+   ends a normal, vibration-started cycle.
+
+Things to know:
+- **Real readings:** the sensors still read for real. A test cycle is stored, charted and
+  scored for lint exactly like a dryer cycle, so a rig with a clean vs. a clogged screen gives
+  real lint numbers.
+- **Vibration is ignored** while a test cycle runs.
+- **Stale requests are dropped:** a request that can't reach the board within 60 s (receiver
+  offline, board not connected) shows "Not sent" instead of firing later.
+- **Version requirements:** the board needs the current `main.ino`, and the database needs
+  migration `002_test_cycle.sql`.
+
 ## 5. Lint logic and tuning
 
 - **Per-cycle numbers:** when a cycle ends, the receiver computes them in [backend/src/dryer_backend/features.py](backend/src/dryer_backend/features.py), for example the steady ΔP with the sensor offset removed.
@@ -305,6 +331,9 @@ docker compose exec db psql -U dryer -d dryer -c "SELECT cycle_no, dp_steady, sc
 | Connect button disabled, "Connected by a receiver started in a terminal" | A one-off `ingest` receiver holds the board. Stop it with Ctrl+C there. |
 | Card says "PC receiver offline" | No standby receiver is running on the computer by the dryer. Start `uv run python -m dryer_backend.remote` there, or press Connect on a local dashboard. |
 | Dashboard error: "The receiver_control table is missing" | The database predates the remote button. Load `backend/db/migrations/001_receiver_control.sql` (command in section 2). |
+| Dashboard error: "The test-cycle columns are missing" | The database predates test cycles. Load `backend/db/migrations/002_test_cycle.sql` (command in section 2). |
+| Test cycle: "Not sent: the board wasn't connected within 60 s" | Connect to the sensor first (the card must say "Connected to the sensor"), then press Start again. |
+| Test cycle shows "started", but no cycle appears | The board runs older firmware without test cycles. Upload the current `arduino_code/main.ino`. |
 | Receiver log: "Bluetooth radio is not powered on" | Turn on Bluetooth on that computer. |
 | `board 'XIAO-BLE' not found` | Board is off, out of range, or another app is connected to it. Check with `uv run tools/ble_reader.py --scan`. |
 | Receiver logs `skipped bad line` with missing characters, e.g. `H,,0499,600,…` | The sketch writes one byte per Bluetooth packet and the queue drops about half. Collect the line and send it with one `bleuart.write(buf, len)` call. |
@@ -412,7 +441,7 @@ Change `DATABASE_URL` in **both** `.env` and `frontend/.env.local`, then restart
 | Vercel: "Not logged in" errors after a while | The 30-day login expired or `AUTH_SECRET` changed. Log in again. |
 | Card: "PC receiver offline" while the receiver runs | The receiver's `.env` points at a different database than Vercel. Run `-Status` and check its log. |
 | Card: "Searching for the sensor…" for a long time | The board is off or out of range, or Bluetooth is off on the PC (log: "Bluetooth radio is not powered on"). |
-| Dashboard: "The receiver_control table is missing" | The cloud database predates the remote button. Load `migrations/001_receiver_control.sql` (see above). |
+| Dashboard: "The receiver_control table is missing" or "test-cycle columns are missing" | The cloud database predates those features. Load `migrations/001_receiver_control.sql` and/or `002_test_cycle.sql` (see section 2). |
 | Pages are slow on Vercel | The functions region is far from the Timescale region. |
 
 ## Adding or updating libraries

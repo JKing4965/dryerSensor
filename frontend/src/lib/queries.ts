@@ -23,6 +23,7 @@ import type {
   LintData,
   LintStatusValue,
   ReceiverStatus,
+  TestCycleRequest,
 } from "./types";
 
 const iso = (d: Date | null): string | null => (d ? d.toISOString() : null);
@@ -255,34 +256,83 @@ export const RECEIVER_ONLINE_S = 15; // heartbeat every 3 s, so 15 s = clearly g
  * The remote Connect button's row (receiver_control). Throws a readable error if the
  * table is missing (database created before step D3b: load the migration).
  */
+const NO_TEST: TestCycleRequest = {
+  command: null,
+  seconds: 0,
+  pending: false,
+  result: null,
+  requestedAt: null,
+  recent: false,
+};
+
+/** Readable errors for databases that predate a migration. */
+function migrationHint(e: unknown): never {
+  const code = (e as { code?: string }).code;
+  if (code === "42P01") {
+    throw new Error(
+      "The receiver_control table is missing. Load backend/db/migrations/001_receiver_control.sql into this database.",
+    );
+  }
+  if (code === "42703") {
+    throw new Error("The test-cycle columns are missing. Load backend/db/migrations/002_test_cycle.sql into this database.");
+  }
+  throw e;
+}
+
 export async function getReceiverControl(deviceId: string): Promise<
-  Pick<ReceiverStatus, "desired" | "online" | "state" | "host" | "lastHeartbeat">
+  Pick<ReceiverStatus, "desired" | "online" | "state" | "host" | "lastHeartbeat" | "test">
 > {
   let rows;
   try {
     ({ rows } = await getPool().query(
       `SELECT desired, receiver_state, receiver_host, receiver_online_at,
-              COALESCE(receiver_online_at > now() - make_interval(secs => $2), false) AS online
+              COALESCE(receiver_online_at > now() - make_interval(secs => $2), false) AS online,
+              test_command, test_seconds, test_command_id > test_done_id AS test_pending,
+              test_result, test_requested_at,
+              COALESCE(test_requested_at > now() - interval '2 minutes', false) AS test_recent
          FROM receiver_control WHERE device_id = $1`,
       [deviceId, RECEIVER_ONLINE_S],
     ));
   } catch (e) {
-    if ((e as { code?: string }).code === "42P01") {
-      throw new Error(
-        "The receiver_control table is missing. Load backend/db/migrations/001_receiver_control.sql into this database.",
-      );
-    }
-    throw e;
+    migrationHint(e);
   }
   const r = rows[0];
-  if (!r) return { desired: "disconnected", online: false, state: "offline", host: null, lastHeartbeat: null };
+  if (!r) {
+    return { desired: "disconnected", online: false, state: "offline", host: null, lastHeartbeat: null, test: NO_TEST };
+  }
   return {
     desired: r.desired,
     online: r.online,
     state: r.online ? (r.receiver_state ?? "standby") : "offline",
     host: r.receiver_host,
     lastHeartbeat: iso(r.receiver_online_at),
+    test: {
+      command: r.test_command,
+      seconds: r.test_seconds,
+      pending: r.test_pending,
+      result: r.test_result,
+      requestedAt: iso(r.test_requested_at),
+      recent: r.test_recent,
+    },
   };
+}
+
+/**
+ * "Start / End test cycle": a new request for the standby receiver to send to the board
+ * (as M,1[,seconds] / M,0). Bumping test_command_id makes the receiver send it exactly once.
+ */
+export async function requestTestCycle(deviceId: string, command: "start" | "stop", seconds: number): Promise<void> {
+  try {
+    await getPool().query(
+      `UPDATE receiver_control
+          SET test_command = $2, test_seconds = $3, test_command_id = test_command_id + 1,
+              test_requested_at = now(), test_result = NULL
+        WHERE device_id = $1`,
+      [deviceId, command, seconds],
+    );
+  } catch (e) {
+    migrationHint(e);
+  }
 }
 
 /** The Connect / Disconnect button: what the standby receiver should do. */
